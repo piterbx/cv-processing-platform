@@ -25,8 +25,8 @@ async def upload_document(
         status="UPLOADED"
     )
     db.add(new_doc)
-    db.commit()
-    db.refresh(new_doc)
+    await db.commit()
+    await db.refresh(new_doc)
 
     # TODO: celery.send_task("process_cv", args=[new_doc.id])
     
