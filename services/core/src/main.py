@@ -1,6 +1,5 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-import asyncio
 from sqlalchemy import text
 
 from src.db.session import engine 
@@ -13,7 +12,7 @@ async def lifespan(app: FastAPI):
     
     # health check S3
     try:
-        await asyncio.to_thread(storage_service.ensure_bucket_exists)
+        await storage_service.ensure_bucket_exists()
         print("S3 Connection: OK")
     except Exception as e:
         print(f"S3 Connection: FAILED | {e}")
