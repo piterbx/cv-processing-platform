@@ -1,9 +1,5 @@
-import os
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-current_file_dir = os.path.dirname(os.path.abspath(__file__))
-env_path = os.path.join(current_file_dir, "../../../../.env")
-print(env_path)
 
 class Settings(BaseSettings):
     POSTGRES_USER: str
@@ -22,10 +18,9 @@ class Settings(BaseSettings):
     def DATABASE_URL(self):
         return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
 
-    class Config:
-        env_file=env_path
-        env_file_encoding='utf-8'
-        env_ignore_empty=True
-        extra='ignore'
+    model_config = SettingsConfigDict(
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
 
 settings = Settings()
