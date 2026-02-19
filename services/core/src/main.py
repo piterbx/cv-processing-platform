@@ -5,7 +5,7 @@ from sqlalchemy import text
 
 from src.db.session import engine 
 from src.services.storage import storage_service
-from src.api.routes import router
+from src.api.router import api_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="CVPP Core", lifespan=lifespan)
 
-app.include_router(router, prefix="/api/v1")
+app.include_router(api_router, prefix="/api/v1")
 
 @app.get("/health")
 def health_check():
