@@ -1,0 +1,26 @@
+[project]
+name = "cvpp-root"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [] 
+
+[tool.uv.workspace]
+members = ["services/*", "libs/*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+extend-exclude = [
+    "alembic",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "S"]
+ignore = []
+
+[tool.ruff.lint.isort]
+known-first-party = ["common"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
