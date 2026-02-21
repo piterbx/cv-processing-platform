@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     S3_BUCKET_NAME: str
     S3_ENDPOINT_URL: str  # for MinIO
 
+    REDIS_HOST: str
+    REDIS_PORT: int
+    REDIS_PASSWORD: str
+
     @property
     def DATABASE_URL(self):
         return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"

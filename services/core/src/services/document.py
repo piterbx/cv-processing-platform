@@ -5,7 +5,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.db.models import Document
 from src.schemas.document import DocumentUpload
+from src.services.queue import queue_service
 from src.services.storage import storage_service
+
+from common import ParseCVTask
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +60,11 @@ class DocumentService:
                 detail="Failed to save document metadata. Upload reverted.",
             ) from None
 
-        # TODO: btask not celery
+        task = ParseCVTask(
+            document_id=new_doc.id, s3_key=s3_key, filename=file.filename
+        )
+
+        await queue_service.enqueue_parse_cv(task.model_dump())
 
         return new_doc
 

@@ -5,7 +5,13 @@ from fastapi import FastAPI
 from sqlalchemy import text
 from src.api.router import api_router
 from src.db.session import engine
+from src.services.queue import queue_service
 from src.services.storage import storage_service
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +35,19 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Database Connection: FAILED | {e}")
 
+    try:
+        await queue_service.connect()
+        logger.info("Redis Connection: OK")
+    except Exception as e:
+        logger.error(f"Redis Connection: FAILED | {e}")
+
     logger.info("[SYSTEM CHECK] Complete")
 
     yield  # app starts
 
     logger.info("Shutting down... Cleaning up database connections.")
+    await queue_service.disconnect()
+
     await engine.dispose()
 
 

@@ -3,11 +3,11 @@ services:
     image: postgres:15-alpine
     container_name: cv_postgres
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: cv_db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - ./data/postgres_data:/var/lib/postgresql/data
 
@@ -18,8 +18,17 @@ services:
       - "9000:9000"  # API S3
       - "9001:9001"  # Console UI
     environment:
-      MINIO_ROOT_USER: admin
-      MINIO_ROOT_PASSWORD: password
+      MINIO_ROOT_USER: ${AWS_ACCESS_KEY_ID}
+      MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY}
     volumes:
       - ./data/minio_data:/data
     command: server /data --console-address ":9001"
+
+  redis:
+    image: redis:7-alpine
+    container_name: cv_redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - ./data/redis_data:/data
