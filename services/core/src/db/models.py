@@ -1,7 +1,8 @@
-from sqlalchemy import Column, Integer, String, DateTime, func
+from sqlalchemy import Column, DateTime, Integer, String, func
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
+
 
 class Document(Base):
     __tablename__ = "documents"
@@ -10,5 +11,5 @@ class Document(Base):
     filename = Column(String, nullable=False)
     content_type = Column(String)
     s3_key = Column(String, nullable=False)
-    status = Column(String, default="UPLOADED") # UPLOADED -> PROCESSING -> DONE
+    status = Column(String, default="UPLOADED")  # UPLOADED -> PROCESSING -> DONE
     created_at = Column(DateTime(timezone=True), server_default=func.now())

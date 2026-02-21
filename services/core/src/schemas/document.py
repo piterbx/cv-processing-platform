@@ -1,11 +1,12 @@
-from pydantic import BaseModel, ConfigDict
 from datetime import datetime
-from typing import Optional
-from fastapi import UploadFile, File, HTTPException, status
+
+from fastapi import File, HTTPException, UploadFile, status
+from pydantic import BaseModel, ConfigDict
+
 
 class DocumentBase(BaseModel):
     filename: str
-    content_type: Optional[str] = None
+    content_type: str | None = None
     status: str
 
 
@@ -21,13 +22,13 @@ class DocumentUpload:
         if file.content_type != "application/pdf":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid file type: {file.content_type}. Only PDF is allowed."
+                detail=f"Invalid file type: {file.content_type}. Only PDF is allowed.",
             )
-        
-        if not file.filename.lower().endswith('.pdf'):
-             raise HTTPException(
+
+        if not file.filename.lower().endswith(".pdf"):
+            raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid file extension. Filename must end with .pdf"
+                detail="Invalid file extension. Filename must end with .pdf",
             )
 
         self.file = file
