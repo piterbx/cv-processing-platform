@@ -268,15 +268,23 @@ version = "0.1.0"
 source = { editable = "libs/common" }
 dependencies = [
     { name = "aioboto3" },
+    { name = "asyncpg" },
     { name = "pydantic" },
+    { name = "pydantic-settings" },
     { name = "sqlalchemy", extra = ["asyncio"] },
+    { name = "taskiq" },
+    { name = "taskiq-redis" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "aioboto3", specifier = ">=15.5.0" },
+    { name = "asyncpg", specifier = ">=0.31.0" },
     { name = "pydantic", specifier = ">=2.12.5" },
+    { name = "pydantic-settings", specifier = ">=2.13.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.46" },
+    { name = "taskiq", specifier = ">=0.12.1" },
+    { name = "taskiq-redis", specifier = ">=1.1.0" },
 ]
 
 [[package]]
@@ -285,14 +293,9 @@ version = "0.1.0"
 source = { virtual = "services/core" }
 dependencies = [
     { name = "alembic" },
-    { name = "asyncpg" },
     { name = "common" },
     { name = "fastapi" },
-    { name = "pydantic-settings" },
     { name = "python-multipart" },
-    { name = "sqlalchemy", extra = ["asyncio"] },
-    { name = "taskiq" },
-    { name = "taskiq-redis" },
     { name = "typing-extensions" },
     { name = "uvicorn" },
 ]
@@ -300,14 +303,9 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = ">=1.18.4" },
-    { name = "asyncpg", specifier = ">=0.31.0" },
     { name = "common", editable = "libs/common" },
     { name = "fastapi", specifier = ">=0.129.0" },
-    { name = "pydantic-settings", specifier = ">=2.13.0" },
     { name = "python-multipart", specifier = ">=0.0.22" },
-    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.46" },
-    { name = "taskiq", specifier = ">=0.12.1" },
-    { name = "taskiq-redis", specifier = ">=1.1.0" },
     { name = "typing-extensions", specifier = ">=4.15.0" },
     { name = "uvicorn", specifier = ">=0.41.0" },
 ]
@@ -837,20 +835,10 @@ version = "0.1.0"
 source = { virtual = "services/worker" }
 dependencies = [
     { name = "common" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "taskiq" },
-    { name = "taskiq-redis" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "common", editable = "libs/common" },
-    { name = "pydantic", specifier = ">=2.12.5" },
-    { name = "pydantic-settings", specifier = ">=2.13.0" },
-    { name = "taskiq", specifier = ">=0.12.1" },
-    { name = "taskiq-redis", specifier = ">=1.1.0" },
-]
+requires-dist = [{ name = "common", editable = "libs/common" }]
 
 [[package]]
 name = "wrapt"
