@@ -12,7 +12,7 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 from src.core.config import settings
-from src.db.models import Base
+from common.models import Base
 
 
 config = context.config

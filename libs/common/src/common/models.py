@@ -11,5 +11,7 @@ class Document(Base):
     filename = Column(String, nullable=False)
     content_type = Column(String)
     s3_key = Column(String, nullable=False)
-    status = Column(String, default="UPLOADED")  # UPLOADED -> PROCESSING -> DONE
+    status = Column(
+        String, default="PENDING"
+    )  # PENDING -> UPLOADED -> PROCESSING -> COMPLETED / FAILED
     created_at = Column(DateTime(timezone=True), server_default=func.now())

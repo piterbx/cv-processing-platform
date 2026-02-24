@@ -3,6 +3,10 @@ name = "worker"
 version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
+    "taskiq>=0.12.1",
+    "taskiq-redis>=1.1.0",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.13.0",
     "common",
 ]
 

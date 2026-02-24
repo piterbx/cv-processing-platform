@@ -22,10 +22,11 @@ async def lifespan(app: FastAPI):
 
     # health check S3
     try:
-        await storage_service.ensure_bucket_exists()
+        await storage_service.check_bucket_exists()
         logger.info("S3 Connection: OK")
     except Exception as e:
-        logger.error(f"S3 Connection: FAILED | {e}")
+        logger.critical(f"S3 Connection: FAILED | {e}")
+        raise RuntimeError("Failed to connect to S3") from e
 
     # health check database
     try:
@@ -33,21 +34,23 @@ async def lifespan(app: FastAPI):
             await conn.execute(text("SELECT 1"))
         logger.info("Database Connection: OK")
     except Exception as e:
-        logger.error(f"Database Connection: FAILED | {e}")
+        logger.critical(f"Database Connection: FAILED | {e}")
+        raise RuntimeError("Failed to connect to Database") from e
 
+    # health check queue
     try:
         await queue_service.connect()
         logger.info("Redis Connection: OK")
     except Exception as e:
-        logger.error(f"Redis Connection: FAILED | {e}")
+        logger.critical(f"Redis Connection: FAILED | {e}")
+        raise RuntimeError("Failed to connect to Redis") from e
 
-    logger.info("[SYSTEM CHECK] Complete")
+    logger.info("[SYSTEM CHECK] Complete. Application is ready.")
 
     yield  # app starts
 
     logger.info("Shutting down... Cleaning up database connections.")
     await queue_service.disconnect()
-
     await engine.dispose()
 
 

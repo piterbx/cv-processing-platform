@@ -10,9 +10,9 @@ dependencies = [
     "asyncpg>=0.31.0",
     "pydantic-settings>=2.13.0",
     "python-multipart>=0.0.22",
-    "aioboto3>=15.5.0",
     "typing_extensions>=4.15.0",
-    "arq>=0.26.0",
+    "taskiq>=0.12.1",
+    "taskiq-redis>=1.1.0",
     "common",
 ]
 

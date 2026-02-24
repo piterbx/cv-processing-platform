@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.db.session import get_db
 from src.schemas.document import DocumentRead, DocumentUpload
 from src.services.document import document_service
+
+from common import S3DownloadError
 
 router = APIRouter()
 
@@ -32,15 +34,20 @@ async def get_document(doc_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.get("/{doc_id}/download", operation_id="download_cv")
 async def download_document(doc_id: int, db: AsyncSession = Depends(get_db)):
-    """Downloads the actual PDF file associated with the document ID."""
-    (
-        file_stream,
-        content_type,
-        filename,
-    ) = await document_service.get_document_download_stream(db, doc_id)
+    """Downloads the PDF file associated with the document ID."""
+    try:
+        (
+            file_stream,
+            content_type,
+            filename,
+        ) = await document_service.get_document_download_stream(db, doc_id)
 
-    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+        headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
 
-    return StreamingResponse(
-        file_stream, media_type=content_type or "application/pdf", headers=headers
-    )
+        return StreamingResponse(
+            file_stream, media_type=content_type or "application/pdf", headers=headers
+        )
+    except S3DownloadError as e:
+        raise HTTPException(
+            status_code=404, detail="File not found on storage server"
+        ) from e
