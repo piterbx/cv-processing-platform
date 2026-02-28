@@ -5,6 +5,8 @@ import tempfile
 from anyio import Path
 from src.core.config import settings
 from src.db import AsyncSessionLocal
+from src.services.censor_service import CensorService
+from src.services.pdf_service import PDFService
 from taskiq_redis import ListQueueBroker
 
 from common.models import Document
@@ -53,7 +55,16 @@ async def process_cv_task(task_data: dict) -> bool:
 
                 await s3_service.download_file(task.s3_key, local_path)
 
-                # TODO: Extract text z pliku PDF
+                raw_text = await PDFService.extract_text(local_path)
+
+                if not raw_text:
+                    logger.warning("Empty PDF content for document ID: %s", doc.id)
+                    return False
+
+                safe_text = CensorService.anonymize_text(raw_text)
+
+                # TODO
+                print(safe_text)
 
                 doc.status = "COMPLETED"
                 await session.commit()

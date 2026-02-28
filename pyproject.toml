@@ -25,6 +25,11 @@ known-first-party = ["common"]
 quote-style = "double"
 indent-style = "space"
 
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
+
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = [
     "fastapi.Depends",
@@ -34,3 +39,7 @@ extend-immutable-calls = [
     "fastapi.Body",
     "fastapi.Header",
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**/*.py" = ["S101"]
+"**/*_test.py" = ["S101"]
