@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import tempfile
@@ -5,6 +6,7 @@ import tempfile
 from anyio import Path
 from src.core.config import settings
 from src.db import AsyncSessionLocal
+from src.services.ai_service import AIService
 from src.services.censor_service import CensorService
 from src.services.pdf_service import PDFService
 from taskiq_redis import ListQueueBroker
@@ -59,19 +61,35 @@ async def process_cv_task(task_data: dict) -> bool:
 
                 if not raw_text:
                     logger.warning("Empty PDF content for document ID: %s", doc.id)
+                    doc.status = "FAILED"
+                    await session.commit()
                     return False
 
                 safe_text = CensorService.anonymize_text(raw_text)
 
-                # TODO
-                print(safe_text)
+                logger.info("Text anonymized successfully. Sending to Ollama...")
+
+                extracted_data = await AIService.extract_cv_data(safe_text)
+
+                if not extracted_data:
+                    logger.warning(
+                        "AI extraction failed. Moving document to manual review."
+                    )
+                    doc.status = "REQUIRES_MANUAL_REVIEW"
+                    await session.commit()
+                    return True
+
+                logger.info(
+                    "AI Extraction COMPLETE! Result:\n%s",
+                    json.dumps(extracted_data, indent=2, ensure_ascii=False),
+                )
 
                 doc.status = "COMPLETED"
                 await session.commit()
                 return True
 
             except Exception as e:
-                logger.error(f"Error parsing document: {e}")
+                logger.error(f"Error parsing document: {e}", exc_info=True)
                 doc.status = "FAILED"
                 await session.commit()
                 return False
@@ -85,5 +103,5 @@ async def process_cv_task(task_data: dict) -> bool:
                         logger.info(f"Cleaned up temporary file: {local_path}")
 
     except Exception as e:
-        logger.error(f"Task payload error: {e}")
+        logger.error(f"Task payload error: {e}", exc_info=True)
         return False
