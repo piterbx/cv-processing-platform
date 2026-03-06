@@ -14,4 +14,5 @@ class Document(Base):
     status = Column(
         String, default="PENDING"
     )  # PENDING -> UPLOADED -> PROCESSING -> COMPLETED / FAILED
+    content_hash = Column(String(64), index=True, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

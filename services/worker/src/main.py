@@ -4,10 +4,12 @@ import os
 import tempfile
 
 from anyio import Path
+from sqlalchemy import select
 from src.core.config import settings
 from src.db import AsyncSessionLocal
 from src.services.ai_service import AIService
 from src.services.censor_service import CensorService
+from src.services.hash_service import HashService
 from src.services.pdf_service import PDFService
 from taskiq_redis import ListQueueBroker
 
@@ -44,7 +46,7 @@ async def process_cv_task(task_data: dict) -> bool:
             if not doc:
                 return False
 
-            if doc.status in ["PROCESSING", "COMPLETED"]:
+            if doc.status in ["PROCESSING", "COMPLETED", "DUPLICATE"]:
                 return True
 
             doc.status = "PROCESSING"
@@ -65,9 +67,26 @@ async def process_cv_task(task_data: dict) -> bool:
                     await session.commit()
                     return False
 
-                safe_text = CensorService.anonymize_text(raw_text)
+                text_hash = HashService.generate_text_hash(raw_text)
 
-                logger.info("Text anonymized successfully. Sending to Ollama...")
+                existing_doc_stmt = select(Document).where(
+                    Document.content_hash == text_hash, Document.id != doc.id
+                )
+                existing_doc_result = await session.execute(existing_doc_stmt)
+
+                if existing_doc_result.scalars().first():
+                    logger.info(
+                        "Exact text duplicate detected for document ID: %s.", doc.id
+                    )
+                    doc.status = "DUPLICATE"
+                    doc.content_hash = text_hash
+                    await session.commit()
+                    return True
+
+                doc.content_hash = text_hash
+
+                safe_text = CensorService.anonymize_text(raw_text)
+                logger.info("Text anonymized successfully. Sending to AI extraction...")
 
                 extracted_data = await AIService.extract_cv_data(safe_text)
 
