@@ -10,6 +10,8 @@ dependencies = [
     "aioboto3>=15.5.0",
     "taskiq>=0.12.1",
     "taskiq-redis>=1.1.0",
+    "ollama>=0.6.1",
+    "pgvector>=0.4.2",
 ]
 
 [build-system]

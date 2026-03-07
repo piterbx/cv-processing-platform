@@ -1,4 +1,6 @@
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import Column, DateTime, Integer, String, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -15,4 +17,8 @@ class Document(Base):
         String, default="PENDING"
     )  # PENDING -> UPLOADED -> PROCESSING -> COMPLETED / FAILED
     content_hash = Column(String(64), index=True, nullable=True)
+
+    parsed_json = Column(JSONB, nullable=True)
+    embedding = Column(Vector(384), nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())

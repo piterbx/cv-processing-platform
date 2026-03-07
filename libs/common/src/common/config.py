@@ -21,6 +21,10 @@ class BaseAppSettings(BaseSettings):
     REDIS_PORT: int
     REDIS_PASSWORD: str
 
+    # Ollama Common
+    OLLAMA_HOST: str = "http://localhost:11434"
+    OLLAMA_EMBEDDING_MODEL: str = "all-minilm"
+
     @property
     def DATABASE_URL(self) -> str:
         return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"

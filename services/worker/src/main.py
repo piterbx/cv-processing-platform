@@ -16,6 +16,7 @@ from taskiq_redis import ListQueueBroker
 from common.models import Document
 from common.schemas import ParseCVTask
 from common.services.storage import S3Service
+from common.services.vector_service import VectorService
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] WORKER: %(message)s"
@@ -102,6 +103,32 @@ async def process_cv_task(task_data: dict) -> bool:
                     "AI Extraction COMPLETE! Result:\n%s",
                     json.dumps(extracted_data, indent=2, ensure_ascii=False),
                 )
+
+                if not extracted_data.get("prompt_injection_detected"):
+                    logger.info("Generating semantic embeddings...")
+
+                    text_to_embed = VectorService.prepare_text_for_embedding(
+                        extracted_data
+                    )
+                    embedding_vector = await VectorService.generate_embedding(
+                        text=text_to_embed,
+                        host=settings.OLLAMA_HOST,
+                        model_name=settings.OLLAMA_EMBEDDING_MODEL,
+                    )
+
+                    if embedding_vector:
+                        logger.info(
+                            "Successfully generated embedding of size: %d",
+                            len(embedding_vector),
+                        )
+                        doc.embedding = embedding_vector
+                        doc.parsed_json = extracted_data
+                    else:
+                        logger.warning("Failed to generate embedding.")
+                else:
+                    logger.warning(
+                        "Skipping vectorization due to detected prompt injection."
+                    )
 
                 doc.status = "COMPLETED"
                 await session.commit()
