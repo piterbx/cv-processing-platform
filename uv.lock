@@ -1010,7 +1010,6 @@ version = "0.1.0"
 source = { virtual = "services/worker" }
 dependencies = [
     { name = "common" },
-    { name = "ollama" },
     { name = "pymupdf" },
 ]
 
@@ -1022,7 +1021,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "common", editable = "libs/common" },
-    { name = "ollama", specifier = ">=0.6.1" },
     { name = "pymupdf", specifier = ">=1.27.1" },
 ]
 
