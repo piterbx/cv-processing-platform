@@ -66,7 +66,7 @@ async def process_cv_task(task_data: dict) -> bool:
                     logger.warning("Empty PDF content for document ID: %s", doc.id)
                     doc.status = "FAILED"
                     await session.commit()
-                    return False
+                    return True
 
                 text_hash = HashService.generate_text_hash(raw_text)
 
