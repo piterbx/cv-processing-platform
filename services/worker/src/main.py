@@ -123,14 +123,17 @@ async def process_cv_task(task_data: dict) -> bool:
                         )
                         doc.embedding = embedding_vector
                         doc.parsed_json = extracted_data
+                        doc.status = "COMPLETED"
                     else:
                         logger.warning("Failed to generate embedding.")
+                        doc.status = "FAILED"
                 else:
                     logger.warning(
                         "Skipping vectorization due to detected prompt injection."
                     )
+                    doc.status = "REJECTED"
+                    doc.parsed_json = extracted_data
 
-                doc.status = "COMPLETED"
                 await session.commit()
                 return True
 
