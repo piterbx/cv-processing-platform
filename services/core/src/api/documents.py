@@ -25,9 +25,13 @@ async def upload_document(
 ):
     return await document_service.create_document(db, upload_data)
 
-@router.post("/{doc_id}/reprocess", response_model=DocumentRead, operation_id="reprocess_cv")
+
+@router.post(
+    "/{doc_id}/reprocess", response_model=DocumentRead, operation_id="reprocess_cv"
+)
 async def reprocess_document(doc_id: int, db: AsyncSession = Depends(get_db)):
     return await document_service.reprocess_document(db, doc_id)
+
 
 @router.get("/{doc_id}", response_model=DocumentRead, operation_id="get_document")
 async def get_document(doc_id: int, db: AsyncSession = Depends(get_db)):

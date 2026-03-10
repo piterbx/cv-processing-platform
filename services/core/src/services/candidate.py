@@ -1,8 +1,9 @@
 import logging
 
-from sqlalchemy import select
+from sqlalchemy import Integer, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.config import settings
+from src.schemas.candidate import CandidateSearchParams
 
 from common.models import Document
 from common.services.vector_service import VectorService
@@ -11,15 +12,17 @@ logger = logging.getLogger(__name__)
 
 
 class CandidateService:
-    async def search_candidates(self, db: AsyncSession, query: str, limit: int = 5):
+    async def search_candidates(self, db: AsyncSession, filters: CandidateSearchParams):
         query_embedding = await VectorService.generate_embedding(
-            text=query,
+            text=filters.q,
             host=settings.OLLAMA_HOST,
             model_name=settings.OLLAMA_EMBEDDING_MODEL,
         )
 
         if not query_embedding:
-            logger.error("Failed to generate embedding for search query: '%s'", query)
+            logger.error(
+                "Failed to generate embedding for search query: '%s'", filters.q
+            )
             raise ValueError(
                 "Failed to process search query due to AI service unavailability."
             )
@@ -35,8 +38,43 @@ class CandidateService:
             select(Document, similarity_expr)
             .where(Document.status == "COMPLETED")
             .where(Document.embedding.is_not(None))
-            .order_by(Document.embedding.cosine_distance(query_embedding))
-            .limit(limit)
+        )
+
+        # hard filters
+        if filters.min_experience is not None:
+            stmt = stmt.where(
+                Document.parsed_json["hard_facts"][
+                    "total_experience_years"
+                ].astext.cast(Integer)
+                >= filters.min_experience
+            )
+
+        if filters.required_skill:
+            stmt = stmt.where(
+                Document.parsed_json["keywords"]["skills"].astext.ilike(
+                    f"%{filters.required_skill}%"
+                )
+            )
+
+        if filters.location:
+            stmt = stmt.where(
+                Document.parsed_json["hard_facts"]["location"].astext.ilike(
+                    f"%{filters.location}%"
+                )
+            )
+
+        if filters.job_title:
+            stmt = stmt.where(
+                Document.parsed_json["keywords"]["job_titles_held"].astext.ilike(
+                    f"%{filters.job_title}%"
+                )
+            )
+
+        # pagination
+        stmt = (
+            stmt.order_by(Document.embedding.cosine_distance(query_embedding))
+            .offset(filters.skip)
+            .limit(filters.limit)
         )
 
         result = await db.execute(stmt)

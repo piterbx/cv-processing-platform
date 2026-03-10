@@ -84,7 +84,7 @@ class DocumentService:
 
     async def reprocess_document(self, db: AsyncSession, doc_id: int) -> Document:
         """
-        Resets the document state and dispatches it to the background worker 
+        Resets the document state and dispatches it to the background worker
         for a fresh AI extraction and vectorization.
         """
         doc = await self.get_document_by_id(db, doc_id)
@@ -92,20 +92,18 @@ class DocumentService:
         doc.status = "PENDING"
         doc.parsed_json = None
         doc.embedding = None
-        
+
         try:
             await db.commit()
             await db.refresh(doc)
         except Exception as e:
             logger.error(f"Database error during document reset: {e}")
             await db.rollback()
-            raise HTTPException(status_code=500, detail="Database error while resetting document") from e
+            raise HTTPException(
+                status_code=500, detail="Database error while resetting document"
+            ) from e
 
-        task = ParseCVTask(
-            document_id=doc.id, 
-            s3_key=doc.s3_key, 
-            filename=doc.filename
-        )
+        task = ParseCVTask(document_id=doc.id, s3_key=doc.s3_key, filename=doc.filename)
 
         job = await queue_service.enqueue_parse_cv(task.model_dump())
         if not job:
@@ -116,8 +114,8 @@ class DocumentService:
             doc.status = "FAILED"
             await db.commit()
             raise HTTPException(
-                status_code=503, 
-                detail="Failed to enqueue background task for reprocessing."
+                status_code=503,
+                detail="Failed to enqueue background task for reprocessing.",
             )
 
         logger.info("Successfully enqueued document %s for reprocessing.", doc.id)
