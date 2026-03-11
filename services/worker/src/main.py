@@ -4,7 +4,7 @@ import os
 import tempfile
 
 from anyio import Path
-from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from src.core.config import settings
 from src.db import AsyncSessionLocal
 from src.services.ai_service import AIService
@@ -52,6 +52,7 @@ async def process_cv_task(task_data: dict) -> bool:
 
             doc.status = "PROCESSING"
             await session.commit()
+            await session.refresh(doc)
 
             local_path = ""
             try:
@@ -69,22 +70,21 @@ async def process_cv_task(task_data: dict) -> bool:
                     return True
 
                 text_hash = HashService.generate_text_hash(raw_text)
+                doc.content_hash = text_hash
 
-                existing_doc_stmt = select(Document).where(
-                    Document.content_hash == text_hash, Document.id != doc.id
-                )
-                existing_doc_result = await session.execute(existing_doc_stmt)
-
-                if existing_doc_result.scalars().first():
+                try:
+                    await session.commit()
+                    await session.refresh(doc)
+                except IntegrityError:
+                    await session.rollback()
                     logger.info(
-                        "Exact text duplicate detected for document ID: %s.", doc.id
+                        "Exact text duplicate detected for document ID: %s.",
+                        task.document_id,
                     )
+                    doc = await session.get(Document, task.document_id)
                     doc.status = "DUPLICATE"
-                    doc.content_hash = text_hash
                     await session.commit()
                     return True
-
-                doc.content_hash = text_hash
 
                 safe_text = CensorService.anonymize_text(raw_text)
                 logger.info("Text anonymized successfully. Sending to AI extraction...")
