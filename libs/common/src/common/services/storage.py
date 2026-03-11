@@ -61,6 +61,7 @@ class S3Service:
             logger.info(f"Successfully deleted {s3_key} from S3.")
         except Exception as e:
             logger.exception(f"Unexpected Deletion Error for {s3_key}: {e}")
+            raise
 
     async def stream_file(self, s3_key: str) -> AsyncGenerator[bytes, None]:
         async with self.session.client(**self.s3_config) as s3_client:

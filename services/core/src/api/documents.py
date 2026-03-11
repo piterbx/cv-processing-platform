@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.db.session import get_db
@@ -58,3 +58,15 @@ async def download_document(doc_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(
             status_code=404, detail="File not found on storage server"
         ) from e
+
+
+@router.delete(
+    "/{doc_id}", status_code=status.HTTP_200_OK, operation_id="delete_document"
+)
+async def delete_document(doc_id: int, db: AsyncSession = Depends(get_db)):
+    """
+    Permanently deletes a candidate's CV from the system.
+    This action removes the database record, AI vector embeddings,
+    and the physical PDF file from S3.
+    """
+    return await document_service.delete_document(db, doc_id)

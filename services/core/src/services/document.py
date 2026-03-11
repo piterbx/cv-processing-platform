@@ -126,5 +126,33 @@ class DocumentService:
         file_stream = storage_service.stream_file(doc.s3_key)
         return file_stream, doc.content_type, doc.filename
 
+    async def delete_document(self, db: AsyncSession, doc_id: int) -> dict:
+        """
+        Hard delete: Removes the physical file from S3 and the record from the database.
+        """
+        doc = await self.get_document_by_id(db, doc_id)
+
+        try:
+            await storage_service.delete_file(doc.s3_key)
+        except Exception as e:
+            logger.error(f"S3 deletion failed for doc {doc_id}. Error: {e}")
+            raise HTTPException(
+                status_code=500, detail="Failed to delete file from S3 storage."
+            ) from e
+
+        try:
+            await db.delete(doc)
+            await db.commit()
+            logger.info("Successfully hard-deleted document %s from database.", doc_id)
+        except Exception as e:
+            logger.error(f"Database error during hard delete for doc {doc_id}: {e}")
+            await db.rollback()
+            raise HTTPException(
+                status_code=500,
+                detail="Database error occurred while deleting the document.",
+            ) from e
+
+        return {"message": f"Document {doc_id} has been permanently deleted."}
+
 
 document_service = DocumentService()
