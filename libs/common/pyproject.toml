@@ -12,6 +12,7 @@ dependencies = [
     "taskiq-redis>=1.1.0",
     "ollama>=0.6.1",
     "pgvector>=0.4.2",
+    "tenacity>=9.1.4",
 ]
 
 [build-system]

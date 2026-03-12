@@ -3,6 +3,13 @@ import logging
 
 from ollama import AsyncClient
 from pydantic import BaseModel, Field, ValidationError
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
+
 from src.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -97,6 +104,26 @@ class AIService:
         return text.replace("<cv_document>", "").replace("</cv_document>", "")
 
     @staticmethod
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=2, min=2, max=10),
+        retry=retry_if_exception_type(Exception),
+        reraise=True,
+    )
+    async def _call_ollama_with_retry(user_message: str) -> str:
+        logger.info("Sending prompt to Ollama model: %s", settings.LLM_MODEL)
+        client = AsyncClient(host=settings.OLLAMA_HOST)
+        response = await client.chat(
+            model=settings.LLM_MODEL,
+            messages=[
+                {"role": "system", "content": AIService.SYSTEM_PROMPT},
+                {"role": "user", "content": user_message},
+            ],
+            format="json",
+        )
+        return response["message"]["content"]
+
+    @staticmethod
     async def extract_cv_data(safe_text: str) -> dict | None:
         if not safe_text:
             raise ValueError("Provided text is empty. Cannot extract data.")
@@ -105,25 +132,13 @@ class AIService:
         raw_content = ""
 
         try:
-            logger.info("Sending prompt to Ollama model: %s", settings.LLM_MODEL)
-
             user_message = (
                 "Extract data from the CV strictly into JSON. "
                 "The CV text is enclosed in the tags below:\n\n"
                 f"<cv_document>\n{sanitized_text}\n</cv_document>"
             )
 
-            client = AsyncClient(host=settings.OLLAMA_HOST)
-            response = await client.chat(
-                model=settings.LLM_MODEL,
-                messages=[
-                    {"role": "system", "content": AIService.SYSTEM_PROMPT},
-                    {"role": "user", "content": user_message},
-                ],
-                format="json",
-            )
-
-            raw_content = response["message"]["content"]
+            raw_content = await AIService._call_ollama_with_retry(user_message)
             parsed_data = json.loads(raw_content)
             validated_profile = CandidateProfile(**parsed_data)
 

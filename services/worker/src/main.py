@@ -110,10 +110,12 @@ async def process_cv_task(task_data: dict) -> bool:
                     text_to_embed = VectorService.prepare_text_for_embedding(
                         extracted_data
                     )
-                    embedding_vector = await VectorService.generate_embedding(
-                        text=text_to_embed,
-                        host=settings.OLLAMA_HOST,
-                        model_name=settings.OLLAMA_EMBEDDING_MODEL,
+                    embedding_vector = (
+                        await VectorService.generate_embedding_with_retry(
+                            text=text_to_embed,
+                            host=settings.OLLAMA_HOST,
+                            model_name=settings.OLLAMA_EMBEDDING_MODEL,
+                        )
                     )
 
                     if embedding_vector:

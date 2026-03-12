@@ -285,6 +285,7 @@ dependencies = [
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "taskiq" },
     { name = "taskiq-redis" },
+    { name = "tenacity" },
 ]
 
 [package.metadata]
@@ -298,6 +299,7 @@ requires-dist = [
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.46" },
     { name = "taskiq", specifier = ">=0.12.1" },
     { name = "taskiq-redis", specifier = ">=1.1.0" },
+    { name = "tenacity", specifier = ">=9.1.4" },
 ]
 
 [[package]]
@@ -959,6 +961,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/90/0a/c555ac1d922e03b9fde2b1b609572a310a252f4bb79fbf964c3039efb6ff/taskiq_redis-1.2.2.tar.gz", hash = "sha256:103c488d143138bab8fc84044dbe68cd3561251090695a6042120398e9915325", size = 14460, upload-time = "2026-02-03T20:26:58.189Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/30/a6/a28f8e06540c041c03e9028a100c5b8949a01c4308f286a6c74197c3bf32/taskiq_redis-1.2.2-py3-none-any.whl", hash = "sha256:574d085c0c07f7fa9945e51195fe2db5b9d3c2a07bcfdc5a7ca323eae5319dff", size = 20666, upload-time = "2026-02-03T20:26:55.706Z" },
+]
+
+[[package]]
+name = "tenacity"
+version = "9.1.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/47/c6/ee486fd809e357697ee8a44d3d69222b344920433d3b6666ccd9b374630c/tenacity-9.1.4.tar.gz", hash = "sha256:adb31d4c263f2bd041081ab33b498309a57c77f9acf2db65aadf0898179cf93a", size = 49413, upload-time = "2026-02-07T10:45:33.841Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d7/c1/eb8f9debc45d3b7918a32ab756658a0904732f75e555402972246b0b8e71/tenacity-9.1.4-py3-none-any.whl", hash = "sha256:6095a360c919085f28c6527de529e76a06ad89b23659fa881ae0649b867a9d55", size = 28926, upload-time = "2026-02-07T10:45:32.24Z" },
 ]
 
 [[package]]
