@@ -16,6 +16,7 @@ class Document(Base):
     status = Column(
         String, default="PENDING"
     )  # PENDING -> UPLOADED -> PROCESSING -> COMPLETED / FAILED
+    file_hash = Column(String(64), unique=True, index=True, nullable=True)
     content_hash = Column(String(64), nullable=True)
 
     parsed_json = Column(JSONB, nullable=True)

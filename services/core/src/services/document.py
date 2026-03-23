@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import uuid
 
@@ -28,6 +29,22 @@ class DocumentService:
 
     async def create_document(self, db: AsyncSession, upload_data: DocumentUpload):
         file = upload_data.file
+        
+        file_content = await file.read()
+        file_hash = hashlib.sha256(file_content).hexdigest()
+        await file.seek(0)
+
+        query = select(Document).where(Document.file_hash == file_hash)
+        result = await db.execute(query)
+        existing_doc = result.scalar_one_or_none()
+
+        if existing_doc:
+            logger.info("File upload rejected: Exact binary duplicate detected (ID: %s)", existing_doc.id)
+            raise HTTPException(
+                status_code=409, 
+                detail={"message": "This exact file has already been uploaded.", "existing_document_id": existing_doc.id}
+            )
+
         file_ext = file.filename.split(".")[-1]
         s3_key = f"{uuid.uuid4()}.{file_ext}"
 
@@ -36,6 +53,7 @@ class DocumentService:
             content_type=file.content_type,
             s3_key=s3_key,
             status="PENDING",
+            file_hash=file_hash,
         )
 
         try:
