@@ -5,6 +5,8 @@ from src.core.config import settings
 from taskiq.kicker import AsyncKicker
 from taskiq_redis import ListQueueBroker
 
+from common.schemas import TaskName
+
 logger = logging.getLogger(__name__)
 
 broker = ListQueueBroker(settings.REDIS_URL)
@@ -35,7 +37,7 @@ class QueueService:
     async def enqueue_parse_cv(self, task_data: dict):
         """Enqueues a task. If Redis is down, it returns None."""
         try:
-            kicker = AsyncKicker(task_name="process_cv_task", broker=broker, labels={})
+            kicker = AsyncKicker(task_name=TaskName.PARSE_CV, broker=broker, labels={})
             job = await kicker.kiq(task_data)
             logger.info(f"Enqueued job {job.task_id} for CV processing")
             return job

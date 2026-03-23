@@ -1,4 +1,10 @@
+from enum import StrEnum
+
 from pydantic import BaseModel
+
+
+class TaskName(StrEnum):
+    PARSE_CV = "process_cv_task"
 
 
 class ParseCVTask(BaseModel):

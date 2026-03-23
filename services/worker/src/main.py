@@ -14,7 +14,7 @@ from src.services.pdf_service import PDFService
 from taskiq_redis import ListQueueBroker
 
 from common.models import Document
-from common.schemas import ParseCVTask
+from common.schemas import ParseCVTask, TaskName
 from common.services.storage import S3Service
 from common.services.vector_service import VectorService
 
@@ -37,7 +37,7 @@ async def shutdown(state) -> None:
     logger.info("Worker gracefully shutting down.")
 
 
-@broker.task(task_name="process_cv_task")
+@broker.task(task_name=TaskName.PARSE_CV)
 async def process_cv_task(task_data: dict) -> bool:
     try:
         task = ParseCVTask.model_validate(task_data)

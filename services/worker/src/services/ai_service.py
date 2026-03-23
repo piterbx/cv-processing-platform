@@ -3,14 +3,13 @@ import logging
 
 from ollama import AsyncClient
 from pydantic import BaseModel, Field, ValidationError
+from src.core.config import settings
 from tenacity import (
     retry,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
 )
-
-from src.core.config import settings
 
 logger = logging.getLogger(__name__)
 

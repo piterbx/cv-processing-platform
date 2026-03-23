@@ -29,7 +29,7 @@ class DocumentService:
 
     async def create_document(self, db: AsyncSession, upload_data: DocumentUpload):
         file = upload_data.file
-        
+
         file_content = await file.read()
         file_hash = hashlib.sha256(file_content).hexdigest()
         await file.seek(0)
@@ -39,10 +39,16 @@ class DocumentService:
         existing_doc = result.scalar_one_or_none()
 
         if existing_doc:
-            logger.info("File upload rejected: Exact binary duplicate detected (ID: %s)", existing_doc.id)
+            logger.info(
+                "File upload rejected: Exact binary duplicate detected (ID: %s)",
+                existing_doc.id,
+            )
             raise HTTPException(
-                status_code=409, 
-                detail={"message": "This exact file has already been uploaded.", "existing_document_id": existing_doc.id}
+                status_code=409,
+                detail={
+                    "message": "This exact file has already been uploaded.",
+                    "existing_document_id": existing_doc.id,
+                },
             )
 
         file_ext = file.filename.split(".")[-1]
