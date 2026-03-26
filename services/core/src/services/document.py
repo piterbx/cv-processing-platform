@@ -1,10 +1,15 @@
+import asyncio
 import hashlib
+import json
 import logging
 import uuid
+from collections.abc import AsyncGenerator
 
-from fastapi import HTTPException
+import redis.asyncio as aioredis
+from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from src.core.config import settings
 from src.schemas.document import DocumentUpload
 from src.services.queue import queue_service
 from src.services.storage import storage_service
@@ -29,29 +34,13 @@ class DocumentService:
 
     async def create_document(self, db: AsyncSession, upload_data: DocumentUpload):
         file = upload_data.file
-
         file_content = await file.read()
-        file_hash = hashlib.sha256(file_content).hexdigest()
+
+        await self._check_exact_duplicate(db, file_content)
         await file.seek(0)
 
-        query = select(Document).where(Document.file_hash == file_hash)
-        result = await db.execute(query)
-        existing_doc = result.scalar_one_or_none()
-
-        if existing_doc:
-            logger.info(
-                "File upload rejected: Exact binary duplicate detected (ID: %s)",
-                existing_doc.id,
-            )
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "message": "This exact file has already been uploaded.",
-                    "existing_document_id": existing_doc.id,
-                },
-            )
-
-        file_ext = file.filename.split(".")[-1]
+        file_hash = hashlib.sha256(file_content).hexdigest()
+        file_ext = file.filename.split(".")[-1] if "." in file.filename else "pdf"
         s3_key = f"{uuid.uuid4()}.{file_ext}"
 
         new_doc = Document(
@@ -84,31 +73,7 @@ class DocumentService:
         new_doc.status = "UPLOADED"
         await db.commit()
 
-        task = ParseCVTask(
-            document_id=new_doc.id, s3_key=s3_key, filename=file.filename
-        )
-
-        job = await queue_service.enqueue_parse_cv(task.model_dump())
-        if not job:
-            logger.critical(
-                "FATAL: Redis rejected task for document %s. Document is orphaned.",
-                new_doc.id,
-            )
-            new_doc.status = "FAILED"
-
-            try:
-                await db.commit()
-            except Exception as e:
-                logger.error("Failed to update status to FAILED for doc %s: %s", new_doc.id, e)
-                await db.rollback()
-
-            raise HTTPException(
-                status_code=503,
-                detail={
-                    "message": "Service temporarily unavailable. Document saved but not processed.",
-                    "document_id": new_doc.id
-                }
-            )
+        await self._enqueue_parsing_task(db, new_doc)
 
         return new_doc
 
@@ -141,20 +106,7 @@ class DocumentService:
                 status_code=500, detail="Database error while resetting document"
             ) from e
 
-        task = ParseCVTask(document_id=doc.id, s3_key=doc.s3_key, filename=doc.filename)
-
-        job = await queue_service.enqueue_parse_cv(task.model_dump())
-        if not job:
-            logger.critical(
-                "FATAL: Redis rejected reprocess task for document %s.",
-                doc.id,
-            )
-            doc.status = "FAILED"
-            await db.commit()
-            raise HTTPException(
-                status_code=503,
-                detail="Failed to enqueue background task for reprocessing.",
-            )
+        await self._enqueue_parsing_task(db, doc)
 
         logger.info("Successfully enqueued document %s for reprocessing.", doc.id)
         return doc
@@ -191,6 +143,106 @@ class DocumentService:
             ) from e
 
         return {"message": f"Document {doc_id} has been permanently deleted."}
+
+    async def stream_document_status(self, doc: Document) -> AsyncGenerator[str, None]:
+        """
+        Subscribes to Redis PubSub and yields SSE-formatted status updates.
+        """
+        redis_client = None
+        pubsub = None
+        channel_name = f"document_status_{doc.id}"
+        final_statuses = {
+            "COMPLETED",
+            "FAILED",
+            "DUPLICATE",
+            "REJECTED",
+            "REQUIRES_MANUAL_REVIEW",
+        }
+
+        try:
+            redis_client = aioredis.from_url(settings.REDIS_URL)
+            pubsub = redis_client.pubsub()
+
+            if doc.status in final_statuses:
+                payload = {"status": doc.status, "document_id": doc.id}
+                yield f"data: {json.dumps(payload)}\n\n"
+                return
+
+            await pubsub.subscribe(channel_name)
+            logger.info(f"SSE Subscribed to Redis channel: {channel_name}")
+
+            payload = {"status": doc.status, "document_id": doc.id}
+            yield f"data: {json.dumps(payload)}\n\n"
+
+            async for message in pubsub.listen():
+                if message["type"] == "message":
+                    data = message["data"].decode("utf-8")
+                    yield f"data: {data}\n\n"
+
+                    parsed_data = json.loads(data)
+                    if parsed_data.get("status") in final_statuses:
+                        logger.info(f"Closing SSE connection for doc {doc.id}")
+                        break
+
+        except asyncio.CancelledError:
+            logger.info(f"Client cleanly disconnected from SSE stream for doc {doc.id}")
+
+        except Exception as e:
+            logger.error(f"Unexpected error in SSE stream for doc {doc.id}: {e}")
+            yield f"data: {json.dumps({'error': 'Internal stream error'})}\n\n"
+
+        finally:
+            if pubsub:
+                await pubsub.unsubscribe(channel_name)
+                await pubsub.close()
+            if redis_client:
+                await redis_client.aclose()
+
+    async def _check_exact_duplicate(
+        self, db: AsyncSession, file_content: bytes
+    ) -> None:
+        """Calculates binary hash and raises 409 Conflict if file already exists."""
+        file_hash = hashlib.sha256(file_content).hexdigest()
+        query = select(Document).where(Document.file_hash == file_hash)
+        result = await db.execute(query)
+        existing_doc = result.scalar_one_or_none()
+
+        if existing_doc:
+            logger.info(
+                f"Upload rejected: Exact binary duplicate (ID: {existing_doc.id})"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "message": "This exact file has already been uploaded.",
+                    "existing_document_id": existing_doc.id,
+                },
+            )
+
+    async def _enqueue_parsing_task(self, db: AsyncSession, doc: Document) -> None:
+        """Creates the task payload and enqueues it. Reverts DB state on failure."""
+        task = ParseCVTask(document_id=doc.id, s3_key=doc.s3_key, filename=doc.filename)
+        job = await queue_service.enqueue_parse_cv(task.model_dump())
+
+        if not job:
+            logger.critical(f"FATAL: Redis rejected task for document {doc.id}.")
+            doc.status = "FAILED"
+            try:
+                await db.commit()
+            except Exception as e:
+                logger.error(f"Failed to update status to FAILED for doc {doc.id}: {e}")
+                await db.rollback()
+
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "message": (
+                        "Service temporarily unavailable. "
+                        "Document saved but not processed."
+                    ),
+                    "document_id": doc.id,
+                },
+            )
 
 
 document_service = DocumentService()

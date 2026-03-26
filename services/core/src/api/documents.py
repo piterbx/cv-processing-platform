@@ -39,6 +39,29 @@ async def get_document(doc_id: int, db: AsyncSession = Depends(get_db)):
     return await document_service.get_document_by_id(db, doc_id)
 
 
+@router.get(
+    "/{doc_id}/status/stream",
+    summary="Real-time document processing status",
+    operation_id="stream_cv_status",
+)
+async def stream_document_status(doc_id: int, db: AsyncSession = Depends(get_db)):
+    """Opens a Server-Sent Events (SSE) stream to listen for real-time
+    status updates from the background worker."""
+    doc = await document_service.get_document_by_id(db, doc_id)
+
+    headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+
+    return StreamingResponse(
+        document_service.stream_document_status(doc),
+        media_type="text/event-stream",
+        headers=headers,
+    )
+
+
 @router.get("/{doc_id}/download", operation_id="download_cv")
 async def download_document(doc_id: int, db: AsyncSession = Depends(get_db)):
     """Downloads the PDF file associated with the document ID."""

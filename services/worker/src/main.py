@@ -3,6 +3,7 @@ import logging
 import os
 import tempfile
 
+import redis.asyncio as aioredis
 from anyio import Path
 from sqlalchemy.exc import IntegrityError
 from src.core.config import settings
@@ -27,6 +28,30 @@ broker = ListQueueBroker(settings.REDIS_URL)
 s3_service = S3Service(settings)
 
 
+async def notify_status_change(document_id: int, status: str, step: str = None):
+    """Broadcats status to Redis Pub/Sub."""
+    try:
+        redis_client = aioredis.from_url(settings.REDIS_URL)
+        payload = {"status": status, "document_id": document_id}
+        if step:
+            payload["step"] = step
+
+        await redis_client.publish(
+            f"document_status_{document_id}", json.dumps(payload)
+        )
+        await redis_client.aclose()
+    except Exception as e:
+        logger.error(f"Redis Notify Error: {e}")
+
+
+async def set_status(session, doc, status: str, step: str = None):
+    """Helper to commit status to DB and notify Redis in one line."""
+    doc.status = status
+    await session.commit()
+    await session.refresh(doc)
+    await notify_status_change(doc.id, status, step)
+
+
 @broker.on_event("startup")
 async def startup(state) -> None:
     logger.info("Worker started and listening to Taskiq Redis queue...")
@@ -39,120 +64,100 @@ async def shutdown(state) -> None:
 
 @broker.task(task_name=TaskName.PARSE_CV)
 async def process_cv_task(task_data: dict) -> bool:
+    local_path = ""
     try:
         task = ParseCVTask.model_validate(task_data)
 
         async with AsyncSessionLocal() as session:
             doc = await session.get(Document, task.document_id)
-            if not doc:
-                return False
-
-            if doc.status in ["PROCESSING", "COMPLETED", "DUPLICATE"]:
+            if not doc or doc.status in ["PROCESSING", "COMPLETED", "DUPLICATE"]:
                 return True
 
-            doc.status = "PROCESSING"
-            await session.commit()
-            await session.refresh(doc)
+            # download phase
+            await set_status(session, doc, "PROCESSING", "Downloading from S3...")
+            local_path = os.path.join(tempfile.gettempdir(), task.s3_key)
+            await s3_service.download_file(task.s3_key, local_path)
 
-            local_path = ""
+            # text extraction
+            await set_status(session, doc, "PROCESSING", "Extracting text...")
+            raw_text = await PDFService.extract_text(local_path)
+            if not raw_text:
+                await set_status(session, doc, "FAILED", "PDF content is empty")
+                return True
+
+            # hashing & duplicate detection
+            doc.content_hash = HashService.generate_text_hash(raw_text)
             try:
-                temp_dir = tempfile.gettempdir()
-                local_path = os.path.join(temp_dir, task.s3_key)
-
-                await s3_service.download_file(task.s3_key, local_path)
-
-                raw_text = await PDFService.extract_text(local_path)
-
-                if not raw_text:
-                    logger.warning("Empty PDF content for document ID: %s", doc.id)
-                    doc.status = "FAILED"
-                    await session.commit()
-                    return True
-
-                text_hash = HashService.generate_text_hash(raw_text)
-                doc.content_hash = text_hash
-
-                try:
-                    await session.commit()
-                    await session.refresh(doc)
-                except IntegrityError:
-                    await session.rollback()
-                    logger.info(
-                        "Exact text duplicate detected for document ID: %s.",
-                        task.document_id,
-                    )
-                    doc = await session.get(Document, task.document_id)
-                    doc.status = "DUPLICATE"
-                    await session.commit()
-                    return True
-
-                safe_text = CensorService.anonymize_text(raw_text)
-                logger.info("Text anonymized successfully. Sending to AI extraction...")
-
-                extracted_data = await AIService.extract_cv_data(safe_text)
-
-                if not extracted_data:
-                    logger.warning(
-                        "AI extraction failed. Moving document to manual review."
-                    )
-                    doc.status = "REQUIRES_MANUAL_REVIEW"
-                    await session.commit()
-                    return True
-
-                logger.info(
-                    "AI Extraction COMPLETE! Result:\n%s",
-                    json.dumps(extracted_data, indent=2, ensure_ascii=False),
+                await set_status(
+                    session, doc, "PROCESSING", "Checking for duplicates..."
                 )
-
-                if not extracted_data.get("prompt_injection_detected"):
-                    logger.info("Generating semantic embeddings...")
-
-                    text_to_embed = VectorService.prepare_text_for_embedding(
-                        extracted_data
-                    )
-                    embedding_vector = (
-                        await VectorService.generate_embedding_with_retry(
-                            text=text_to_embed,
-                            host=settings.OLLAMA_HOST,
-                            model_name=settings.OLLAMA_EMBEDDING_MODEL,
-                        )
-                    )
-
-                    if embedding_vector:
-                        logger.info(
-                            "Successfully generated embedding of size: %d",
-                            len(embedding_vector),
-                        )
-                        doc.embedding = embedding_vector
-                        doc.parsed_json = extracted_data
-                        doc.status = "COMPLETED"
-                    else:
-                        logger.warning("Failed to generate embedding.")
-                        doc.status = "FAILED"
-                else:
-                    logger.warning(
-                        "Skipping vectorization due to detected prompt injection."
-                    )
-                    doc.status = "REJECTED"
-                    doc.parsed_json = extracted_data
-
-                await session.commit()
+            except IntegrityError:
+                await session.rollback()
+                doc = await session.get(Document, task.document_id)
+                await set_status(
+                    session, doc, "DUPLICATE", "Exact content duplicate detected"
+                )
                 return True
 
-            except Exception as e:
-                logger.error(f"Error parsing document: {e}", exc_info=True)
-                doc.status = "FAILED"
-                await session.commit()
-                return False
+            # AI Processing
+            await set_status(
+                session, doc, "PROCESSING", "Anonymizing & Analyzing AI data..."
+            )
+            safe_text = CensorService.anonymize_text(raw_text)
+            extracted_data = await AIService.extract_cv_data(safe_text)
 
-            finally:
-                if local_path:
-                    async_path = Path(local_path)
+            if not extracted_data:
+                await set_status(
+                    session,
+                    doc,
+                    "REQUIRES_MANUAL_REVIEW",
+                    "AI failed to parse document",
+                )
+                return True
 
-                    if await async_path.exists():
-                        await async_path.unlink()
-                        logger.info(f"Cleaned up temporary file: {local_path}")
+            # security & vectorization
+            if extracted_data.get("prompt_injection_detected"):
+                doc.parsed_json = extracted_data
+                await set_status(
+                    session, doc, "REJECTED", "Security risk: Prompt injection detected"
+                )
+                return True
+
+            await set_status(
+                session, doc, "PROCESSING", "Generating semantic embeddings..."
+            )
+            text_to_embed = VectorService.prepare_text_for_embedding(extracted_data)
+            embedding_vector = await VectorService.generate_embedding_with_retry(
+                text=text_to_embed,
+                host=settings.OLLAMA_HOST,
+                model_name=settings.OLLAMA_EMBEDDING_MODEL,
+            )
+
+            if embedding_vector:
+                doc.embedding = embedding_vector
+                doc.parsed_json = extracted_data
+                await set_status(session, doc, "COMPLETED")
+            else:
+                await set_status(session, doc, "FAILED", "Embedding generation failed")
+
+            return True
 
     except Exception as e:
-        logger.error(f"Task payload error: {e}", exc_info=True)
+        logger.error(f"Critical error parsing document: {e}", exc_info=True)
+        try:
+            async with AsyncSessionLocal() as error_session:
+                error_doc = await error_session.get(Document, task.document_id)
+                if error_doc:
+                    await set_status(
+                        error_session, error_doc, "FAILED", f"Internal error: {str(e)}"
+                    )
+        except Exception as nested_e:
+            logger.error(f"Could not update FAILED status: {nested_e}")
         return False
+
+    finally:
+        if local_path:
+            path_obj = Path(local_path)
+            if await path_obj.exists():
+                await path_obj.unlink()
+                logger.info(f"Cleaned up temporary file: {local_path}")
