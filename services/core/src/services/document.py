@@ -94,7 +94,21 @@ class DocumentService:
                 "FATAL: Redis rejected task for document %s. Document is orphaned.",
                 new_doc.id,
             )
-            # TODO: handling
+            new_doc.status = "FAILED"
+
+            try:
+                await db.commit()
+            except Exception as e:
+                logger.error("Failed to update status to FAILED for doc %s: %s", new_doc.id, e)
+                await db.rollback()
+
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "message": "Service temporarily unavailable. Document saved but not processed.",
+                    "document_id": new_doc.id
+                }
+            )
 
         return new_doc
 
