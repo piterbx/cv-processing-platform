@@ -2,7 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.db.session import get_db
+from src.schemas.candidate import ApprovedCandidateData
 from src.schemas.document import DocumentRead, DocumentUpload
+from src.services.application import application_service
 from src.services.document import document_service
 
 from common import S3DownloadError
@@ -21,9 +23,18 @@ async def get_documents(
 
 @router.post("/upload", response_model=DocumentRead, operation_id="upload_cv")
 async def upload_document(
-    upload_data: DocumentUpload = Depends(), db: AsyncSession = Depends(get_db)
+    job_offer_id: int | None = Query(
+        None, description="Optional job offer ID to apply for"
+    ),
+    upload_data: DocumentUpload = Depends(),
+    db: AsyncSession = Depends(get_db),
 ):
-    return await document_service.create_document(db, upload_data)
+    doc = await document_service.create_document(db, upload_data)
+
+    if job_offer_id:
+        await application_service.create_pending_application(db, doc.id, job_offer_id)
+
+    return doc
 
 
 @router.post(
@@ -93,3 +104,16 @@ async def delete_document(doc_id: int, db: AsyncSession = Depends(get_db)):
     and the physical PDF file from S3.
     """
     return await document_service.delete_document(db, doc_id)
+
+
+@router.post(
+    "/{doc_id}/approve", status_code=status.HTTP_200_OK, operation_id="approve_cv"
+)
+async def approve_document(
+    doc_id: int, data: ApprovedCandidateData, db: AsyncSession = Depends(get_db)
+):
+    """
+    Approves the parsed CV data, creates a relational candidate profile,
+    and triggers the background vectorization task.
+    """
+    return await document_service.approve_document(db, doc_id, data)

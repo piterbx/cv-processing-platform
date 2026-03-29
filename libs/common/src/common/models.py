@@ -70,7 +70,15 @@ class Document(Base):
             "content_hash",
             unique=True,
             postgresql_where=(
-                status.in_(["PROCESSING", "AWAITING_REVIEW", "COMPLETED"])
+                status.in_(
+                    [
+                        "PROCESSING",
+                        "AWAITING_REVIEW",
+                        "APPROVED",
+                        "INDEXING",
+                        "COMPLETED",
+                    ]
+                )
             ),
         ),
     )
@@ -164,7 +172,7 @@ class Application(Base):
 
     # Application -> Candidate
     candidate_id = Column(
-        Integer, ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False
+        Integer, ForeignKey("candidates.id", ondelete="CASCADE"), nullable=True
     )
 
     # Application -> JobOffer

@@ -1,3 +1,3 @@
-from .tasks import ParseCVTask, TaskName
+from .tasks import GenerateEmbeddingsTask, ParseCVTask, TaskName
 
-__all__ = ["ParseCVTask", "TaskName"]
+__all__ = ["ParseCVTask", "GenerateEmbeddingsTask", "TaskName"]

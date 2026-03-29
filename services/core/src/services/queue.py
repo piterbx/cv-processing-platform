@@ -45,5 +45,18 @@ class QueueService:
             logger.error(f"Failed to enqueue task: {e}")
             return None
 
+    async def enqueue_generate_embeddings(self, task_data: dict):
+        """Enqueues a task for vector generation. If Redis is down, it returns None."""
+        try:
+            kicker = AsyncKicker(
+                task_name=TaskName.GENERATE_EMBEDDINGS, broker=broker, labels={}
+            )
+            job = await kicker.kiq(task_data)
+            logger.info(f"Enqueued job {job.task_id} for embedding generation")
+            return job
+        except Exception as e:
+            logger.error(f"Failed to enqueue embedding task: {e}")
+            return None
+
 
 queue_service = QueueService()

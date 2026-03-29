@@ -7,16 +7,20 @@ from collections.abc import AsyncGenerator
 
 import redis.asyncio as aioredis
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from src.core.config import settings
+from src.schemas.candidate import ApprovedCandidateData
 from src.schemas.document import DocumentUpload
 from src.services.queue import queue_service
 from src.services.storage import storage_service
 
 from common import S3UploadError
-from common.models import Document
-from common.schemas import ParseCVTask
+from common.models import Application, Candidate, Document, Skill, WorkExperience
+from common.schemas import GenerateEmbeddingsTask, ParseCVTask
 
 logger = logging.getLogger(__name__)
 
@@ -32,14 +36,29 @@ class DocumentService:
         result = await db.execute(query)
         return result.scalars().all()
 
-    async def create_document(self, db: AsyncSession, upload_data: DocumentUpload):
+    async def create_document(
+        self, db: AsyncSession, upload_data: DocumentUpload
+    ) -> Document:
         file = upload_data.file
-        file_content = await file.read()
 
-        await self._check_exact_duplicate(db, file_content)
+        # streaming hash calculation (8KB chunks)
+        sha256_hash = hashlib.sha256()
+        while chunk := await file.read(8192):
+            sha256_hash.update(chunk)
+        file_hash = sha256_hash.hexdigest()
+
         await file.seek(0)
 
-        file_hash = hashlib.sha256(file_content).hexdigest()
+        query = select(Document).where(Document.file_hash == file_hash)
+        existing_doc = (await db.execute(query)).scalar_one_or_none()
+
+        if existing_doc:
+            logger.info(
+                f"Reusing existing document ID {existing_doc.id} for hash {file_hash}"
+            )
+            return existing_doc
+
+        # prepare metadata and DB record for a new document
         file_ext = file.filename.split(".")[-1] if "." in file.filename else "pdf"
         s3_key = f"{uuid.uuid4()}.{file_ext}"
 
@@ -55,11 +74,26 @@ class DocumentService:
             db.add(new_doc)
             await db.commit()
             await db.refresh(new_doc)
+        except IntegrityError:
+            # race condition catch: Another concurrent request just committed this hash
+            await db.rollback()
+            logger.info(
+                f"Race condition mitigated: "
+                f"Reusing newly created document for {file_hash}"
+            )
+            # if race condition happened, fetch the one that was just created
+            race_doc = (
+                await db.execute(
+                    select(Document).where(Document.file_hash == file_hash)
+                )
+            ).scalar_one()
+            return race_doc
         except Exception as e:
             logger.error(f"Database error during creation: {e}")
             await db.rollback()
             raise HTTPException(status_code=500, detail="Database error") from e
 
+        # upload to S3
         try:
             await storage_service.upload_file(file.file, s3_key, file.content_type)
         except S3UploadError as e:
@@ -73,7 +107,16 @@ class DocumentService:
         new_doc.status = "UPLOADED"
         await db.commit()
 
-        await self._enqueue_parsing_task(db, new_doc)
+        # enqueue task with cleanup fallback
+        try:
+            await self._enqueue_parsing_task(db, new_doc)
+        except HTTPException as e:
+            logger.warning(f"Queueing failed for doc {new_doc.id}. Cleaning up S3.")
+            try:
+                await storage_service.delete_file(s3_key)
+            except Exception as cleanup_error:
+                logger.error(f"Failed to clean up S3 file {s3_key}: {cleanup_error}")
+            raise e
 
         return new_doc
 
@@ -88,11 +131,23 @@ class DocumentService:
     async def reprocess_document(self, db: AsyncSession, doc_id: int) -> Document:
         """
         Resets the document state and dispatches it to the background worker
-        for a fresh AI extraction and vectorization.
+        for a fresh AI extraction. Prevents reprocessing of active or
+        completed documents.
         """
-        doc = await self.get_document_by_id(db, doc_id)
+        query = select(Document).where(Document.id == doc_id).with_for_update()
+        doc = (await db.execute(query)).scalar_one_or_none()
 
-        doc.status = "PENDING"
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found.")
+
+        invalid_states = {"PENDING", "UPLOADED", "PROCESSING", "COMPLETED"}
+        if doc.status in invalid_states:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot reprocess document in current state: {doc.status}",
+            )
+
+        doc.status = "UPLOADED"
         doc.parsed_json = None
         doc.embedding = None
 
@@ -100,7 +155,7 @@ class DocumentService:
             await db.commit()
             await db.refresh(doc)
         except Exception as e:
-            logger.error(f"Database error during document reset: {e}")
+            logger.error(f"Database error during document reset for doc {doc_id}: {e}")
             await db.rollback()
             raise HTTPException(
                 status_code=500, detail="Database error while resetting document"
@@ -110,6 +165,138 @@ class DocumentService:
 
         logger.info("Successfully enqueued document %s for reprocessing.", doc.id)
         return doc
+
+    async def approve_document(
+        self, db: AsyncSession, doc_id: int, data: ApprovedCandidateData
+    ) -> dict:
+        query = select(Document).where(Document.id == doc_id).with_for_update()
+        doc = (await db.execute(query)).scalar_one_or_none()
+
+        if not doc or doc.status != "AWAITING_REVIEW":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Document not found or already processed.",
+            )
+
+        try:
+            # atomic UPSERT for Candidate
+            cand_data = data.model_dump(
+                exclude={"experiences", "skills", "job_offer_id"}
+            )
+            cand_stmt = (
+                pg_insert(Candidate)
+                .values(**cand_data)
+                .on_conflict_do_update(
+                    index_elements=["email"],
+                    set_={k: v for k, v in cand_data.items() if v is not None},
+                )
+                .returning(Candidate.id)
+            )
+            candidate_id = (await db.execute(cand_stmt)).scalar_one()
+
+            # fetch candidate with skills loaded for M2M update
+            candidate = await db.get(
+                Candidate, candidate_id, options=[selectinload(Candidate.skills)]
+            )
+
+            # sync Work Experience
+            await db.execute(
+                delete(WorkExperience).where(
+                    WorkExperience.candidate_id == candidate_id
+                )
+            )
+
+            if data.experiences:
+                db.add_all(
+                    [
+                        WorkExperience(candidate_id=candidate_id, **exp.model_dump())
+                        for exp in data.experiences
+                    ]
+                )
+
+            # batch Sync Skills
+            if data.skills:
+                skill_names = {s.name.strip().lower() for s in data.skills}
+
+                await db.execute(
+                    pg_insert(Skill)
+                    .values([{"name": name} for name in skill_names])
+                    .on_conflict_do_nothing()
+                )
+
+                skills_query = select(Skill).where(Skill.name.in_(skill_names))
+                candidate.skills = list(
+                    (await db.execute(skills_query)).scalars().all()
+                )
+            else:
+                candidate.skills = []
+
+            # link Document and Application
+            doc.candidate_id = candidate_id
+            doc.status = "APPROVED"
+
+            app_query = select(Application).where(Application.document_id == doc.id)
+            application = (await db.execute(app_query)).scalar_one_or_none()
+
+            if application:
+                application.candidate_id = candidate_id
+                application.status = "NEW"
+            elif data.job_offer_id:
+                db.add(
+                    Application(
+                        candidate_id=candidate_id,
+                        job_offer_id=data.job_offer_id,
+                        document_id=doc.id,
+                        status="NEW",
+                    )
+                )
+
+            await db.commit()
+            await db.refresh(doc)
+
+        except Exception as e:
+            logger.error(
+                f"Database error during document approval for doc {doc_id}: {e}"
+            )
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Database error occurred while approving the document.",
+            ) from e
+
+        # background Task Trigger
+        await self._enqueue_embedding_task(db, doc)
+
+        return {
+            "message": "Candidate approved successfully. Vectorization started.",
+            "candidate_id": candidate_id,
+        }
+
+    async def _enqueue_embedding_task(self, db: AsyncSession, doc: Document) -> None:
+        """Creates the embedding task payload and enqueues it.
+        Reverts DB state on failure."""
+        task = GenerateEmbeddingsTask(document_id=doc.id)
+
+        job = await queue_service.enqueue_generate_embeddings(task.model_dump())
+
+        if not job:
+            logger.critical(
+                f"FATAL: Redis rejected embedding task for document {doc.id}."
+            )
+            doc.status = "FAILED"
+            try:
+                await db.commit()
+            except Exception as e:
+                logger.error(f"Failed to update status to FAILED for doc {doc.id}: {e}")
+                await db.rollback()
+
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "Service temporarily unavailable. "
+                    "Document approved but vectorization failed."
+                ),
+            )
 
     async def get_document_download_stream(self, db: AsyncSession, doc_id: int):
         doc = await self.get_document_by_id(db, doc_id)
@@ -197,27 +384,6 @@ class DocumentService:
                 await pubsub.close()
             if redis_client:
                 await redis_client.aclose()
-
-    async def _check_exact_duplicate(
-        self, db: AsyncSession, file_content: bytes
-    ) -> None:
-        """Calculates binary hash and raises 409 Conflict if file already exists."""
-        file_hash = hashlib.sha256(file_content).hexdigest()
-        query = select(Document).where(Document.file_hash == file_hash)
-        result = await db.execute(query)
-        existing_doc = result.scalar_one_or_none()
-
-        if existing_doc:
-            logger.info(
-                f"Upload rejected: Exact binary duplicate (ID: {existing_doc.id})"
-            )
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "message": "This exact file has already been uploaded.",
-                    "existing_document_id": existing_doc.id,
-                },
-            )
 
     async def _enqueue_parsing_task(self, db: AsyncSession, doc: Document) -> None:
         """Creates the task payload and enqueues it. Reverts DB state on failure."""
