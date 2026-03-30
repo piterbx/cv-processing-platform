@@ -28,6 +28,7 @@ indent-style = "space"
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
+    "ty>=0.0.26",
 ]
 
 [tool.ruff.lint.flake8-bugbear]
