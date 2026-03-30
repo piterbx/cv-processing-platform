@@ -26,7 +26,11 @@ logger = logging.getLogger(__name__)
 
 broker = ListQueueBroker(settings.REDIS_URL)
 s3_service = S3Service(settings)
-redis_client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+redis_client = aioredis.from_url(
+    settings.REDIS_URL,
+    decode_responses=True,
+    max_connections=10
+)
 
 
 async def notify_status_change(document_id: int, status: str, step: str = None):
@@ -80,8 +84,10 @@ async def process_cv_task(task_data: dict) -> bool:
                     return True
 
                 # download phase
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                    local_path = tmp_file.name
+
                 await set_status(session, doc, "PROCESSING", "Downloading from S3...")
-                local_path = os.path.join(tempfile.gettempdir(), task.s3_key)
                 await s3_service.download_file(task.s3_key, local_path)
 
                 # text extraction
@@ -158,8 +164,11 @@ async def process_cv_task(task_data: dict) -> bool:
         if local_path:
             path_obj = Path(local_path)
             if await path_obj.exists():
-                await path_obj.unlink()
-                logger.info(f"Cleaned up temporary file: {local_path}")
+                try:
+                    await path_obj.unlink()
+                    logger.info(f"Cleaned up temporary file: {local_path}")
+                except Exception as cleanup_error:
+                    logger.warning(f"Failed to delete temp file {local_path}: {cleanup_error}")
 
 
 @broker.task(task_name=TaskName.GENERATE_EMBEDDINGS)

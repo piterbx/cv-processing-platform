@@ -14,17 +14,15 @@ class PDFService:
         Uses block extraction to correctly handle multi-column resumes.
         """
         try:
-            doc = fitz.open(file_path)
             extracted_blocks = []
+            
+            with fitz.open(file_path) as doc:
+                for page in doc:
+                    for block in page.get_text("blocks"):
+                        text_content = block[4].strip()
+                        if text_content:
+                            extracted_blocks.append(text_content)
 
-            for page in doc:
-                # get_text("blocks") prevents merging text across columns
-                for block in page.get_text("blocks"):
-                    text_content = block[4].strip()
-                    if text_content:
-                        extracted_blocks.append(text_content)
-
-            doc.close()
             return "\n\n".join(extracted_blocks)
 
         except Exception as e:
