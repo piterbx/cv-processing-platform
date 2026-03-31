@@ -1,6 +1,6 @@
-from typing import Any
+from datetime import date
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class CandidateSearchParams(BaseModel):
@@ -18,14 +18,18 @@ class CandidateSearchParams(BaseModel):
 
 
 class CandidateSearchResponse(BaseModel):
-    document_id: int = Field(..., description="ID of the source CV document")
+    model_config = ConfigDict(from_attributes=True)
+
+    candidate_id: int = Field(..., description="ID of the candidate profile")
+    first_name: str | None = None
+    last_name: str | None = None
+    email: EmailStr | None = None
+    location: str | None = None
+    total_experience_years: int = 0
     similarity_score: float = Field(
         ..., description="Cosine similarity score (0.0 to 1.0)"
     )
-    parsed_data: dict[str, Any] = Field(
-        default_factory=dict, description="AI extracted structured data"
-    )
-    status: str
+    status: str = Field(..., description="Current status of the source document")
 
 
 class SkillApproveSchema(BaseModel):
@@ -35,12 +39,12 @@ class SkillApproveSchema(BaseModel):
 class WorkExperienceApproveSchema(BaseModel):
     company: str = Field(..., min_length=1)
     position: str = Field(..., min_length=1)
-    start_date: str | None = None
-    end_date: str | None = None
+    start_date: date | None = Field(None, description="Start date in YYYY-MM-DD format")
+    end_date: date | None = Field(None, description="End date in YYYY-MM-DD format")
     description: str | None = None
 
 
-class ApprovedCandidateData(BaseModel):
+class CandidateReviewDraft(BaseModel):
     """
     Main schema that will arrive from the frontend (from the recruiter)
     during CV approval.
@@ -48,18 +52,19 @@ class ApprovedCandidateData(BaseModel):
 
     first_name: str | None = None
     last_name: str | None = None
-
-    email: EmailStr | None = None
-
+    email: str | None = None
     phone: str | None = None
     location: str | None = None
-
-    total_experience_years: int = Field(default=0, ge=0)
+    total_experience_years: int = 0
     summary: str | None = None
-
     skills: list[SkillApproveSchema] = Field(default_factory=list)
     experiences: list[WorkExperienceApproveSchema] = Field(default_factory=list)
-
-    # optional: Job offer ID. If the recruiter doesn't select one, the application
-    # is treated as "spontaneous" (not tied to a specific job offer)
     job_offer_id: int | None = None
+
+
+class ApprovedCandidateData(CandidateReviewDraft):
+    model_config = ConfigDict(extra="forbid")
+
+    first_name: str = Field(..., min_length=1)
+    last_name: str = Field(..., min_length=1)
+    email: EmailStr = Field(...)

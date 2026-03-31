@@ -3,7 +3,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.db.session import get_db
 from src.schemas.candidate import ApprovedCandidateData
-from src.schemas.document import DocumentRead, DocumentUpload
+from src.schemas.document import DocumentRead, DocumentReviewResponse, DocumentUpload
 from src.services.application import application_service
 from src.services.document import document_service
 
@@ -104,6 +104,21 @@ async def delete_document(doc_id: int, db: AsyncSession = Depends(get_db)):
     and the physical PDF file from S3.
     """
     return await document_service.delete_document(db, doc_id)
+
+
+@router.get(
+    "/{doc_id}/review",
+    response_model=DocumentReviewResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get parsed CV data for human review",
+)
+async def get_document_draft_for_review(
+    doc_id: int, db: AsyncSession = Depends(get_db)
+):
+    """
+    Endpoint used by the frontend to pre-fill the CV approval form.
+    """
+    return await document_service.get_document_for_review(db=db, document_id=doc_id)
 
 
 @router.post(

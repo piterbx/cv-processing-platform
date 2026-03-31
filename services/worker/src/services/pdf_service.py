@@ -15,7 +15,7 @@ class PDFService:
         """
         try:
             extracted_blocks = []
-            
+
             with fitz.open(file_path) as doc:
                 for page in doc:
                     for block in page.get_text("blocks"):

@@ -2,6 +2,7 @@ from datetime import datetime
 
 from fastapi import File, HTTPException, UploadFile, status
 from pydantic import BaseModel, ConfigDict
+from src.schemas.candidate import CandidateReviewDraft
 
 
 class DocumentBase(BaseModel):
@@ -32,3 +33,10 @@ class DocumentUpload:
             )
 
         self.file = file
+
+
+class DocumentReviewResponse(BaseModel):
+    document_id: int
+    status: str
+    candidate_id: int | None = None
+    extracted_data: CandidateReviewDraft

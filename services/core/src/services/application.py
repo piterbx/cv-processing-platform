@@ -32,11 +32,13 @@ class ApplicationService:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={
-                    "message": "You have already applied for this position with this document.",
+                    "message": "You have already applied for this position.",
                     "application_id": existing_app.id,
                     "status": existing_app.status,
-                    "applied_at": existing_app.applied_at.isoformat() if existing_app.applied_at else None
-                }
+                    "applied_at": existing_app.applied_at.isoformat()
+                    if existing_app.applied_at
+                    else None,
+                },
             )
 
         pending_app = Application(

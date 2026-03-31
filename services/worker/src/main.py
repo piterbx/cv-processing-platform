@@ -1,6 +1,5 @@
 import json
 import logging
-import os
 import tempfile
 
 import redis.asyncio as aioredis
@@ -27,9 +26,7 @@ logger = logging.getLogger(__name__)
 broker = ListQueueBroker(settings.REDIS_URL)
 s3_service = S3Service(settings)
 redis_client = aioredis.from_url(
-    settings.REDIS_URL,
-    decode_responses=True,
-    max_connections=10
+    settings.REDIS_URL, decode_responses=True, max_connections=10
 )
 
 
@@ -84,7 +81,9 @@ async def process_cv_task(task_data: dict) -> bool:
                     return True
 
                 # download phase
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                with tempfile.NamedTemporaryFile(
+                    delete=False, suffix=".pdf"
+                ) as tmp_file:
                     local_path = tmp_file.name
 
                 await set_status(session, doc, "PROCESSING", "Downloading from S3...")
@@ -115,6 +114,8 @@ async def process_cv_task(task_data: dict) -> bool:
                 await set_status(
                     session, doc, "PROCESSING", "Anonymizing & Analyzing AI data..."
                 )
+                contact_info = CensorService.extract_contact_info(raw_text)
+
                 safe_text = CensorService.anonymize_text(raw_text)
                 extracted_data = await AIService.extract_cv_data(safe_text)
 
@@ -137,6 +138,14 @@ async def process_cv_task(task_data: dict) -> bool:
                         "Security risk: Prompt injection detected",
                     )
                     return True
+
+                if "personal_info" not in extracted_data:
+                    extracted_data["personal_info"] = {}
+
+                extracted_data["personal_info"]["email"] = contact_info["email"]
+                extracted_data["personal_info"]["phone"] = contact_info["phone"]
+
+                doc.parsed_json = extracted_data
 
                 await set_status(session, doc, "AWAITING_REVIEW")
                 return True
@@ -168,7 +177,9 @@ async def process_cv_task(task_data: dict) -> bool:
                     await path_obj.unlink()
                     logger.info(f"Cleaned up temporary file: {local_path}")
                 except Exception as cleanup_error:
-                    logger.warning(f"Failed to delete temp file {local_path}: {cleanup_error}")
+                    logger.warning(
+                        f"Failed to delete temp file {local_path}: {cleanup_error}"
+                    )
 
 
 @broker.task(task_name=TaskName.GENERATE_EMBEDDINGS)

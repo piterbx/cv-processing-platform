@@ -1,11 +1,11 @@
 import logging
 
-from sqlalchemy import Integer, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.config import settings
-from src.schemas.candidate import CandidateSearchParams
+from src.schemas.candidate import CandidateSearchParams, CandidateSearchResponse
 
-from common.models import Document
+from common.models import Candidate, Document, Skill, WorkExperience
 from common.services.vector_service import VectorService
 
 logger = logging.getLogger(__name__)
@@ -35,7 +35,8 @@ class CandidateService:
         ).label("similarity_score")
 
         stmt = (
-            select(Document, similarity_expr)
+            select(Candidate, similarity_expr)
+            .join(Document, Candidate.id == Document.candidate_id)
             .where(Document.status == "COMPLETED")
             .where(Document.embedding.is_not(None))
         )
@@ -43,30 +44,21 @@ class CandidateService:
         # hard filters
         if filters.min_experience is not None:
             stmt = stmt.where(
-                Document.parsed_json["hard_facts"][
-                    "total_experience_years"
-                ].astext.cast(Integer)
-                >= filters.min_experience
+                Candidate.total_experience_years >= filters.min_experience
             )
 
         if filters.required_skill:
             stmt = stmt.where(
-                Document.parsed_json["keywords"]["skills"].astext.ilike(
-                    f"%{filters.required_skill}%"
-                )
+                Candidate.skills.any(Skill.name.ilike(f"%{filters.required_skill}%"))
             )
 
         if filters.location:
-            stmt = stmt.where(
-                Document.parsed_json["hard_facts"]["location"].astext.ilike(
-                    f"%{filters.location}%"
-                )
-            )
+            stmt = stmt.where(Candidate.location.ilike(f"%{filters.location}%"))
 
         if filters.job_title:
             stmt = stmt.where(
-                Document.parsed_json["keywords"]["job_titles_held"].astext.ilike(
-                    f"%{filters.job_title}%"
+                Candidate.experiences.any(
+                    WorkExperience.position.ilike(f"%{filters.job_title}%")
                 )
             )
 
@@ -81,13 +73,17 @@ class CandidateService:
         rows = result.all()
 
         return [
-            {
-                "document_id": doc.id,
-                "similarity_score": float(score),
-                "parsed_data": doc.parsed_json or {},
-                "status": doc.status,
-            }
-            for doc, score in rows
+            CandidateSearchResponse(
+                candidate_id=cand.id,
+                first_name=cand.first_name,
+                last_name=cand.last_name,
+                email=cand.email,
+                location=cand.location,
+                total_experience_years=cand.total_experience_years,
+                similarity_score=float(score),
+                status="COMPLETED",
+            )
+            for cand, score in rows
         ]
 
 

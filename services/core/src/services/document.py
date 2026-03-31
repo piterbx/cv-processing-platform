@@ -13,8 +13,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from src.core.config import settings
-from src.schemas.candidate import ApprovedCandidateData
-from src.schemas.document import DocumentUpload
+from src.schemas.candidate import (
+    ApprovedCandidateData,
+    CandidateReviewDraft,
+    SkillApproveSchema,
+)
+from src.schemas.document import DocumentReviewResponse, DocumentUpload
 from src.services.queue import queue_service
 from src.services.storage import storage_service
 
@@ -165,6 +169,67 @@ class DocumentService:
 
         logger.info("Successfully enqueued document %s for reprocessing.", doc.id)
         return doc
+
+    async def get_document_for_review(
+        self, db: AsyncSession, document_id: int
+    ) -> DocumentReviewResponse:
+        """
+        Retrieves a document and its AI-parsed data, mapping it safely
+        into the schema required by the frontend for the approval form.
+        """
+        stmt = select(Document).where(Document.id == document_id)
+        result = await db.execute(stmt)
+        doc = result.scalar_one_or_none()
+
+        if not doc:
+            logger.warning(
+                f"Review requested for non-existent document ID: {document_id}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Document with ID {document_id} not found.",
+            )
+
+        if doc.status == "COMPLETED":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Document is already approved and processing is completed.",
+            )
+
+        raw_data = doc.parsed_json or {}
+
+        personal_info = raw_data.get("personal_info", {})
+        hard_facts = raw_data.get("hard_facts", {})
+        keywords = raw_data.get("keywords", {})
+        semantic_text = raw_data.get("semantic_text", {})
+
+        # TODO: get mapped experirence fron candidate profile join work
+        mapped_experiences = []
+
+        mapped_skills = [
+            SkillApproveSchema(name=skill_name)
+            for skill_name in keywords.get("skills", [])
+        ]
+
+        draft_data = CandidateReviewDraft(
+            first_name=personal_info.get("first_name"),
+            last_name=personal_info.get("last_name"),
+            email=personal_info.get("email"),
+            phone=personal_info.get("phone"),
+            location=hard_facts.get("location"),
+            total_experience_years=hard_facts.get("total_experience_years", 0),
+            summary=semantic_text.get("professional_summary"),
+            skills=mapped_skills,
+            experiences=[],  # TODO: map experiences
+            job_offer_id=getattr(doc, "job_offer_id", None),
+        )
+
+        return DocumentReviewResponse(
+            document_id=doc.id,
+            status=doc.status,
+            candidate_id=doc.candidate_id,
+            extracted_data=draft_data,
+        )
 
     async def approve_document(
         self, db: AsyncSession, doc_id: int, data: ApprovedCandidateData

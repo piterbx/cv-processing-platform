@@ -72,3 +72,20 @@ class CensorService:
                 "Error occurred during text anonymization: %s", e, exc_info=True
             )
             raise RuntimeError(f"Smart anonymization failed: {str(e)}") from e
+
+    @staticmethod
+    def extract_contact_info(raw_text: str) -> dict:
+        """
+        Extracts email and phone using existing regex patterns
+        before the text gets anonymized.
+        """
+        if not raw_text:
+            return {"email": None, "phone": None}
+
+        email_match = CensorService.EMAIL_REGEX.search(raw_text)
+        phone_match = CensorService.PHONE_REGEX.search(raw_text)
+
+        return {
+            "email": email_match.group(0) if email_match else None,
+            "phone": phone_match.group(0).strip() if phone_match else None,
+        }
