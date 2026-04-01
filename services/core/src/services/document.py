@@ -17,6 +17,7 @@ from src.schemas.candidate import (
     ApprovedCandidateData,
     CandidateReviewDraft,
     SkillApproveSchema,
+    WorkExperienceApproveSchema,
 )
 from src.schemas.document import DocumentReviewResponse, DocumentUpload
 from src.services.queue import queue_service
@@ -203,8 +204,17 @@ class DocumentService:
         keywords = raw_data.get("keywords", {})
         semantic_text = raw_data.get("semantic_text", {})
 
-        # TODO: get mapped experirence fron candidate profile join work
-        mapped_experiences = []
+        raw_experiences = raw_data.get("experience", [])
+        mapped_experiences = [
+            WorkExperienceApproveSchema(
+                company=exp.get("company") or "Unknown",
+                position=exp.get("position") or "Unknown",
+                start_date=exp.get("start_date"),
+                end_date=exp.get("end_date"),
+                description=exp.get("description"),
+            )
+            for exp in raw_experiences
+        ]
 
         mapped_skills = [
             SkillApproveSchema(name=skill_name)
@@ -220,7 +230,7 @@ class DocumentService:
             total_experience_years=hard_facts.get("total_experience_years", 0),
             summary=semantic_text.get("professional_summary"),
             skills=mapped_skills,
-            experiences=[],  # TODO: map experiences
+            experiences=mapped_experiences,
             job_offer_id=getattr(doc, "job_offer_id", None),
         )
 
@@ -272,12 +282,18 @@ class DocumentService:
             )
 
             if data.experiences:
-                db.add_all(
-                    [
-                        WorkExperience(candidate_id=candidate_id, **exp.model_dump())
-                        for exp in data.experiences
-                    ]
-                )
+                new_experiences = [
+                    WorkExperience(
+                        candidate_id=candidate_id,
+                        company=exp.company,
+                        position=exp.position,
+                        start_date=exp.start_date,
+                        end_date=exp.end_date,
+                        description=exp.description,
+                    )
+                    for exp in data.experiences
+                ]
+                db.add_all(new_experiences)
 
             # batch Sync Skills
             if data.skills:

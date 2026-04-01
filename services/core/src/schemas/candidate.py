@@ -39,9 +39,14 @@ class SkillApproveSchema(BaseModel):
 class WorkExperienceApproveSchema(BaseModel):
     company: str = Field(..., min_length=1)
     position: str = Field(..., min_length=1)
-    start_date: date | None = Field(None, description="Start date in YYYY-MM-DD format")
-    end_date: date | None = Field(None, description="End date in YYYY-MM-DD format")
+    start_date: date | str | None = Field(None)
+    end_date: date | str | None = Field(None)
     description: str | None = None
+
+
+class WorkExperienceStrictSchema(WorkExperienceApproveSchema):
+    start_date: date | None = Field(None)
+    end_date: date | None = Field(None)
 
 
 class CandidateReviewDraft(BaseModel):
@@ -68,3 +73,5 @@ class ApprovedCandidateData(CandidateReviewDraft):
     first_name: str = Field(..., min_length=1)
     last_name: str = Field(..., min_length=1)
     email: EmailStr = Field(...)
+
+    experiences: list[WorkExperienceStrictSchema] = Field(default_factory=list)

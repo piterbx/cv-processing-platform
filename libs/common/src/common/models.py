@@ -2,6 +2,7 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     Boolean,
     Column,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -128,8 +129,8 @@ class WorkExperience(Base):
 
     company = Column(String(255), nullable=False)
     position = Column(String(255), nullable=False)
-    start_date = Column(String(50), nullable=True)
-    end_date = Column(String(50), nullable=True)
+    start_date = Column(Date, nullable=True)
+    end_date = Column(Date, nullable=True)
     description = Column(Text, nullable=True)
 
     # many WorkExperiences -> 1 Candidate | Nullable: False
