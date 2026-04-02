@@ -24,6 +24,7 @@ from src.services.queue import queue_service
 from src.services.storage import storage_service
 
 from common import S3UploadError
+from common.enums import ApplicationStatus, DocumentStatus
 from common.models import Application, Candidate, Document, Skill, WorkExperience
 from common.schemas import GenerateEmbeddingsTask, ParseCVTask
 
@@ -71,7 +72,7 @@ class DocumentService:
             filename=file.filename,
             content_type=file.content_type,
             s3_key=s3_key,
-            status="PENDING",
+            status=DocumentStatus.PENDING,
             file_hash=file_hash,
         )
 
@@ -103,13 +104,13 @@ class DocumentService:
             await storage_service.upload_file(file.file, s3_key, file.content_type)
         except S3UploadError as e:
             logger.error(f"Failed to upload to S3. Error: {e}")
-            new_doc.status = "FAILED"
+            new_doc.status = DocumentStatus.FAILED
             await db.commit()
             raise HTTPException(
                 status_code=500, detail="Failed to upload file to S3"
             ) from e
 
-        new_doc.status = "UPLOADED"
+        new_doc.status = DocumentStatus.UPLOADED
         await db.commit()
 
         # enqueue task with cleanup fallback
@@ -145,14 +146,19 @@ class DocumentService:
         if not doc:
             raise HTTPException(status_code=404, detail="Document not found.")
 
-        invalid_states = {"PENDING", "UPLOADED", "PROCESSING", "COMPLETED"}
+        invalid_states = {
+            DocumentStatus.PENDING,
+            DocumentStatus.UPLOADED,
+            DocumentStatus.PROCESSING,
+            DocumentStatus.COMPLETED,
+        }
         if doc.status in invalid_states:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot reprocess document in current state: {doc.status}",
             )
 
-        doc.status = "UPLOADED"
+        doc.status = DocumentStatus.UPLOADED
         doc.parsed_json = None
         doc.embedding = None
 
@@ -191,7 +197,7 @@ class DocumentService:
                 detail=f"Document with ID {document_id} not found.",
             )
 
-        if doc.status == "COMPLETED":
+        if doc.status == DocumentStatus.COMPLETED:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Document is already approved and processing is completed.",
@@ -247,7 +253,7 @@ class DocumentService:
         query = select(Document).where(Document.id == doc_id).with_for_update()
         doc = (await db.execute(query)).scalar_one_or_none()
 
-        if not doc or doc.status != "AWAITING_REVIEW":
+        if not doc or doc.status != DocumentStatus.AWAITING_REVIEW:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Document not found or already processed.",
@@ -314,21 +320,21 @@ class DocumentService:
 
             # link Document and Application
             doc.candidate_id = candidate_id
-            doc.status = "APPROVED"
+            doc.status = DocumentStatus.APPROVED
 
             app_query = select(Application).where(Application.document_id == doc.id)
             application = (await db.execute(app_query)).scalar_one_or_none()
 
             if application:
                 application.candidate_id = candidate_id
-                application.status = "NEW"
+                application.status = ApplicationStatus.NEW
             elif data.job_offer_id:
                 db.add(
                     Application(
                         candidate_id=candidate_id,
                         job_offer_id=data.job_offer_id,
                         document_id=doc.id,
-                        status="NEW",
+                        status=ApplicationStatus.NEW,
                     )
                 )
 
@@ -364,7 +370,7 @@ class DocumentService:
             logger.critical(
                 f"FATAL: Redis rejected embedding task for document {doc.id}."
             )
-            doc.status = "FAILED"
+            doc.status = DocumentStatus.FAILED
             try:
                 await db.commit()
             except Exception as e:
@@ -420,11 +426,11 @@ class DocumentService:
         pubsub = None
         channel_name = f"document_status_{doc.id}"
         final_statuses = {
-            "COMPLETED",
-            "FAILED",
-            "DUPLICATE",
-            "REJECTED",
-            "REQUIRES_MANUAL_REVIEW",
+            DocumentStatus.COMPLETED,
+            DocumentStatus.FAILED,
+            DocumentStatus.DUPLICATE,
+            DocumentStatus.REJECTED,
+            DocumentStatus.REQUIRES_MANUAL_REVIEW,
         }
 
         try:
@@ -473,7 +479,7 @@ class DocumentService:
 
         if not job:
             logger.critical(f"FATAL: Redis rejected task for document {doc.id}.")
-            doc.status = "FAILED"
+            doc.status = DocumentStatus.FAILED
             try:
                 await db.commit()
             except Exception as e:

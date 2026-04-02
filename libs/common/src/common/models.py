@@ -4,6 +4,7 @@ from sqlalchemy import (
     Column,
     Date,
     DateTime,
+    Enum,
     ForeignKey,
     Index,
     Integer,
@@ -14,6 +15,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base, relationship
+
+from common.enums import ApplicationStatus, DocumentStatus
 
 Base = declarative_base()
 
@@ -49,7 +52,11 @@ class Document(Base):
     filename = Column(String, nullable=False)
     content_type = Column(String)
     s3_key = Column(String, nullable=False)
-    status = Column(String, default="PENDING")
+    status = Column(
+        Enum(DocumentStatus, name="documentstatus"),
+        default=DocumentStatus.PENDING,
+        nullable=False,
+    )
 
     file_hash = Column(String(64), unique=True, index=True, nullable=True)
     content_hash = Column(String(64), nullable=True)
@@ -73,11 +80,11 @@ class Document(Base):
             postgresql_where=(
                 status.in_(
                     [
-                        "PROCESSING",
-                        "AWAITING_REVIEW",
-                        "APPROVED",
-                        "INDEXING",
-                        "COMPLETED",
+                        DocumentStatus.PROCESSING,
+                        DocumentStatus.AWAITING_REVIEW,
+                        DocumentStatus.APPROVED,
+                        DocumentStatus.INDEXING,
+                        DocumentStatus.COMPLETED,
                     ]
                 )
             ),
@@ -184,7 +191,11 @@ class Application(Base):
     # Application -> Document
     document_id = Column(Integer, ForeignKey("documents.id", ondelete="SET NULL"))
 
-    status = Column(String(50), default="NEW")
+    status = Column(
+        Enum(ApplicationStatus, name="applicationstatus"),
+        default=ApplicationStatus.NEW,
+        nullable=False,
+    )
     applied_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # many Applications -> 1 Candidate

@@ -24,6 +24,8 @@ class BaseAppSettings(BaseSettings):
     # Ollama Common
     OLLAMA_HOST: str = "http://localhost:11434"
     OLLAMA_EMBEDDING_MODEL: str = "all-minilm"
+    OLLAMA_EMBEDDING_NUM_CTX: int = 4096
+    OLLAMA_EMBEDDING_TEMPERATURE: float = 0.0
 
     @property
     def DATABASE_URL(self) -> str:

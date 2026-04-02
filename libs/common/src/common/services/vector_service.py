@@ -39,14 +39,21 @@ class VectorService:
 
     @staticmethod
     async def _execute_request(
-        text: str, host: str, model_name: str
+        text: str, host: str, model_name: str, num_ctx: int, temperature: float
     ) -> list[float] | None:
         if not text or not text.strip():
             logger.warning("Empty text provided for vectorization.")
             return None
 
         client = AsyncClient(host=host)
-        response = await client.embeddings(model=model_name, prompt=text)
+        response = await client.embeddings(
+            model=model_name,
+            prompt=text,
+            options={
+                "num_ctx": num_ctx,
+                "temperature": temperature,
+            },
+        )
 
         return response.get("embedding")
 

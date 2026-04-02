@@ -13,6 +13,7 @@ from src.services.hash_service import HashService
 from src.services.pdf_service import PDFService
 from taskiq_redis import ListQueueBroker
 
+from common.enums import DocumentStatus
 from common.models import Document
 from common.schemas import GenerateEmbeddingsTask, ParseCVTask, TaskName
 from common.services.storage import S3Service
@@ -30,7 +31,9 @@ redis_client = aioredis.from_url(
 )
 
 
-async def notify_status_change(document_id: int, status: str, step: str = None):
+async def notify_status_change(
+    document_id: int, status: DocumentStatus, step: str = None
+):
     """Broadcats status to Redis Pub/Sub."""
     try:
         payload = {"status": status, "document_id": document_id}
@@ -44,7 +47,7 @@ async def notify_status_change(document_id: int, status: str, step: str = None):
         logger.error(f"Redis Notify Error: {e}")
 
 
-async def set_status(session, doc, status: str, step: str = None):
+async def set_status(session, doc, status: DocumentStatus, step: str = None):
     """Helper to commit status to DB and notify Redis in one line."""
     doc.status = status
     await session.commit()
@@ -73,10 +76,10 @@ async def process_cv_task(task_data: dict) -> bool:
             try:
                 doc = await session.get(Document, task.document_id)
                 if not doc or doc.status in [
-                    "PROCESSING",
-                    "COMPLETED",
-                    "DUPLICATE",
-                    "AWAITING_REVIEW",
+                    DocumentStatus.PROCESSING,
+                    DocumentStatus.COMPLETED,
+                    DocumentStatus.DUPLICATE,
+                    DocumentStatus.AWAITING_REVIEW,
                 ]:
                     return True
 
@@ -86,33 +89,48 @@ async def process_cv_task(task_data: dict) -> bool:
                 ) as tmp_file:
                     local_path = tmp_file.name
 
-                await set_status(session, doc, "PROCESSING", "Downloading from S3...")
+                await set_status(
+                    session, doc, DocumentStatus.PROCESSING, "Downloading from S3..."
+                )
                 await s3_service.download_file(task.s3_key, local_path)
 
                 # text extraction
-                await set_status(session, doc, "PROCESSING", "Extracting text...")
+                await set_status(
+                    session, doc, DocumentStatus.PROCESSING, "Extracting text..."
+                )
                 raw_text = await PDFService.extract_text(local_path)
                 if not raw_text:
-                    await set_status(session, doc, "FAILED", "PDF content is empty")
+                    await set_status(
+                        session, doc, DocumentStatus.FAILED, "PDF content is empty"
+                    )
                     return True
 
                 # hashing & duplicate detection
                 doc.content_hash = HashService.generate_text_hash(raw_text)
                 try:
                     await set_status(
-                        session, doc, "PROCESSING", "Checking for duplicates..."
+                        session,
+                        doc,
+                        DocumentStatus.PROCESSING,
+                        "Checking for duplicates...",
                     )
                 except IntegrityError:
                     await session.rollback()
                     doc = await session.get(Document, task.document_id)
                     await set_status(
-                        session, doc, "DUPLICATE", "Exact content duplicate detected"
+                        session,
+                        doc,
+                        DocumentStatus.DUPLICATE,
+                        "Exact content duplicate detected",
                     )
                     return True
 
                 # AI Processing
                 await set_status(
-                    session, doc, "PROCESSING", "Anonymizing & Analyzing AI data..."
+                    session,
+                    doc,
+                    DocumentStatus.PROCESSING,
+                    "Anonymizing & Analyzing AI data...",
                 )
                 contact_info = CensorService.extract_contact_info(raw_text)
 
@@ -123,7 +141,7 @@ async def process_cv_task(task_data: dict) -> bool:
                     await set_status(
                         session,
                         doc,
-                        "REQUIRES_MANUAL_REVIEW",
+                        DocumentStatus.REQUIRES_MANUAL_REVIEW,
                         "AI failed to parse document",
                     )
                     return True
@@ -134,7 +152,7 @@ async def process_cv_task(task_data: dict) -> bool:
                     await set_status(
                         session,
                         doc,
-                        "REJECTED",
+                        DocumentStatus.REJECTED,
                         "Security risk: Prompt injection detected",
                     )
                     return True
@@ -147,7 +165,7 @@ async def process_cv_task(task_data: dict) -> bool:
 
                 doc.parsed_json = extracted_data
 
-                await set_status(session, doc, "AWAITING_REVIEW")
+                await set_status(session, doc, DocumentStatus.AWAITING_REVIEW)
                 return True
 
             except Exception as processing_error:
@@ -160,7 +178,7 @@ async def process_cv_task(task_data: dict) -> bool:
                     await set_status(
                         session,
                         doc,
-                        "FAILED",
+                        DocumentStatus.FAILED,
                         f"Internal processing error: {str(processing_error)}",
                     )
                 return False
@@ -192,7 +210,7 @@ async def generate_embeddings_task(task_data: dict) -> bool:
             try:
                 doc = await session.get(Document, document_id)
 
-                if not doc or doc.status != "APPROVED":
+                if not doc or doc.status != DocumentStatus.APPROVED:
                     logger.warning(
                         "Task GENERATE_EMBEDDINGS ignored. "
                         f"Document {document_id} status is not APPROVED."
@@ -200,13 +218,18 @@ async def generate_embeddings_task(task_data: dict) -> bool:
                     return True
 
                 await set_status(
-                    session, doc, "INDEXING", "Generating semantic embeddings..."
+                    session,
+                    doc,
+                    DocumentStatus.INDEXING,
+                    "Generating semantic embeddings...",
                 )
 
                 extracted_data = doc.parsed_json
 
                 if not extracted_data:
-                    await set_status(session, doc, "FAILED", "Parsed JSON is missing")
+                    await set_status(
+                        session, doc, DocumentStatus.FAILED, "Parsed JSON is missing"
+                    )
                     return True
 
                 text_to_embed = VectorService.prepare_text_for_embedding(extracted_data)
@@ -214,14 +237,19 @@ async def generate_embeddings_task(task_data: dict) -> bool:
                     text=text_to_embed,
                     host=settings.OLLAMA_HOST,
                     model_name=settings.OLLAMA_EMBEDDING_MODEL,
+                    num_ctx=settings.OLLAMA_EMBEDDING_NUM_CTX,
+                    temperature=settings.OLLAMA_EMBEDDING_TEMPERATURE,
                 )
 
                 if embedding_vector:
                     doc.embedding = embedding_vector
-                    await set_status(session, doc, "COMPLETED")
+                    await set_status(session, doc, DocumentStatus.COMPLETED)
                 else:
                     await set_status(
-                        session, doc, "FAILED", "Embedding generation failed"
+                        session,
+                        doc,
+                        DocumentStatus.FAILED,
+                        "Embedding generation failed",
                     )
 
                 return True
@@ -237,7 +265,7 @@ async def generate_embeddings_task(task_data: dict) -> bool:
                     await set_status(
                         session,
                         doc,
-                        "FAILED",
+                        DocumentStatus.FAILED,
                         f"Internal processing error: {str(processing_error)}",
                     )
                 return False
