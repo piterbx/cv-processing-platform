@@ -21,16 +21,20 @@ class VectorService:
         reraise=True,
     )
     async def generate_embedding_with_retry(
-        text: str, host: str, model_name: str
+        text: str, host: str, model_name: str, num_ctx: int, temperature: float
     ) -> list[float] | None:
-        return await VectorService._execute_request(text, host, model_name)
+        return await VectorService._execute_request(
+            text, host, model_name, num_ctx, temperature
+        )
 
     @staticmethod
     async def generate_embedding(
-        text: str, host: str, model_name: str
+        text: str, host: str, model_name: str, num_ctx: int, temperature: float
     ) -> list[float] | None:
         try:
-            return await VectorService._execute_request(text, host, model_name)
+            return await VectorService._execute_request(
+                text, host, model_name, num_ctx, temperature
+            )
         except Exception as e:
             logger.error(
                 "Failed to generate embedding via Ollama: %s", e, exc_info=True

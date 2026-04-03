@@ -4,7 +4,6 @@ from sqlalchemy import (
     Column,
     Date,
     DateTime,
-    Enum,
     ForeignKey,
     Index,
     Integer,
@@ -13,6 +12,7 @@ from sqlalchemy import (
     Text,
     func,
 )
+from sqlalchemy.dialects.postgresql import ENUM as pgEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -53,7 +53,7 @@ class Document(Base):
     content_type = Column(String)
     s3_key = Column(String, nullable=False)
     status = Column(
-        Enum(DocumentStatus, name="documentstatus"),
+        pgEnum(DocumentStatus, name="documentstatus"),
         default=DocumentStatus.PENDING,
         nullable=False,
     )
@@ -192,7 +192,7 @@ class Application(Base):
     document_id = Column(Integer, ForeignKey("documents.id", ondelete="SET NULL"))
 
     status = Column(
-        Enum(ApplicationStatus, name="applicationstatus"),
+        pgEnum(ApplicationStatus, name="applicationstatus"),
         default=ApplicationStatus.NEW,
         nullable=False,
     )

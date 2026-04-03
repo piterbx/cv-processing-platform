@@ -1,10 +1,11 @@
 import logging
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.config import settings
 from src.schemas.candidate import CandidateSearchParams, CandidateSearchResponse
 
+from common.enums import DocumentStatus
 from common.models import Candidate, Document, Skill, WorkExperience
 from common.services.vector_service import VectorService
 
@@ -17,6 +18,8 @@ class CandidateService:
             text=filters.q,
             host=settings.OLLAMA_HOST,
             model_name=settings.OLLAMA_EMBEDDING_MODEL,
+            num_ctx=settings.OLLAMA_EMBEDDING_NUM_CTX,
+            temperature=settings.OLLAMA_EMBEDDING_TEMPERATURE,
         )
 
         if not query_embedding:
@@ -30,14 +33,13 @@ class CandidateService:
         # cosine_distance returns 0 for identical vectors, up to 2 for opposites.
         # here invert it (1 - distance) to get
         # a logical similarity score (higher is better).
-        similarity_expr = (
-            1 - Document.embedding.cosine_distance(query_embedding)
-        ).label("similarity_score")
+        distance_expr = Document.embedding.cosine_distance(query_embedding)
+        similarity_expr = 1 - distance_expr
 
         stmt = (
-            select(Candidate, similarity_expr)
+            select(Candidate, func.max(similarity_expr).label("similarity_score"))
             .join(Document, Candidate.id == Document.candidate_id)
-            .where(Document.status == "COMPLETED")
+            .where(Document.status == DocumentStatus.COMPLETED)
             .where(Document.embedding.is_not(None))
         )
 
@@ -64,7 +66,8 @@ class CandidateService:
 
         # pagination
         stmt = (
-            stmt.order_by(Document.embedding.cosine_distance(query_embedding))
+            stmt.group_by(Candidate.id)
+            .order_by(func.min(distance_expr).asc())
             .offset(filters.skip)
             .limit(filters.limit)
         )

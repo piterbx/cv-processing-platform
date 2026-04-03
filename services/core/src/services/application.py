@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.enums import ApplicationStatus
 from common.models import Application
 
 logger = logging.getLogger(__name__)
@@ -42,7 +43,9 @@ class ApplicationService:
             )
 
         pending_app = Application(
-            document_id=document_id, job_offer_id=job_offer_id, status="PROCESSING"
+            document_id=document_id,
+            job_offer_id=job_offer_id,
+            status=ApplicationStatus.NEW,
         )
 
         try:
