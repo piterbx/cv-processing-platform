@@ -1,8 +1,10 @@
 import json
 import logging
+from typing import Any
 
+import dateparser
 from ollama import AsyncClient
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from src.core.config import settings
 from tenacity import (
     retry,
@@ -17,20 +19,52 @@ logger = logging.getLogger(__name__)
 class Experience(BaseModel):
     company: str = Field(default="", description="Name of the company or organization.")
     position: str = Field(default="", description="Job title held at this company.")
-    start_date: str = Field(
-        default="",
-        description="Start date (YYYY-MM-DD or YYYY-MM) Use empty string if not found.",
+    start_date: str | None = Field(
+        default=None,
+        description="Start date (YYYY-MM-DD or YYYY-MM). Null if not found.",
     )
-    end_date: str = Field(
-        default="", description="End date or 'Present'. Use empty string if not found."
+    end_date: str | None = Field(
+        default=None, description="End date. Null if currently employed or not found."
     )
     description: str = Field(
         default="",
         description="Short description of responsibilities and achievements.",
     )
 
+    @field_validator("start_date", "end_date", mode="before")
+    @classmethod
+    def normalize_dates(cls, value: Any) -> str | None:
+        if not value or not isinstance(value, str) or not value.strip():
+            return None
+
+        if value.strip().lower() in (
+            "present",
+            "obecnie",
+            "aktualnie",
+            "now",
+            "to date",
+        ):
+            return None
+
+        parsed_date = dateparser.parse(
+            value,
+            languages=["pl", "en"],
+            settings={"PREFER_DAY_OF_MONTH": "first", "STRICT_PARSING": False},
+        )
+
+        if parsed_date:
+            return parsed_date.strftime("%Y-%m-%d")
+
+        return value.strip()
+
 
 class HardFacts(BaseModel):
+    first_name: str | None = Field(
+        default=None, description="First name of the candidate. Null if not found."
+    )
+    last_name: str | None = Field(
+        default=None, description="Last name of the candidate. Null if not found."
+    )
     total_experience_years: int = Field(
         default=0,
         description="Total years of professional experience. Return 0 if none.",
@@ -101,6 +135,8 @@ class AIService:
     
     {
       "hard_facts": {
+        "first_name": "<string or null>",
+        "last_name": "<string or null>",
         "total_experience_years": <integer>,
         "location": "<string>",
         "education_level": "<string>"
@@ -117,8 +153,8 @@ class AIService:
         {
           "company": "<string>",
           "position": "<string>",
-          "start_date": "<string>",
-          "end_date": "<string>", 
+          "start_date": "<string or null>",
+          "end_date": "<string or null>",
           "description": "<string>"
         }
       ],

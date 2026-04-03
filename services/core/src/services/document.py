@@ -228,8 +228,8 @@ class DocumentService:
         ]
 
         draft_data = CandidateReviewDraft(
-            first_name=personal_info.get("first_name"),
-            last_name=personal_info.get("last_name"),
+            first_name=hard_facts.get("first_name"),
+            last_name=hard_facts.get("last_name"),
             email=personal_info.get("email"),
             phone=personal_info.get("phone"),
             location=hard_facts.get("location"),
