@@ -3,6 +3,19 @@ from datetime import date
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class WorkExperienceApproveSchema(BaseModel):
+    company: str = Field(..., min_length=1)
+    position: str = Field(..., min_length=1)
+    start_date: date | str | None = Field(None)
+    end_date: date | str | None = Field(None)
+    description: str | None = None
+
+
+class WorkExperienceStrictSchema(WorkExperienceApproveSchema):
+    start_date: date | None = Field(None)
+    end_date: date | None = Field(None)
+
+
 class WorkExperienceBase(BaseModel):
     company: str = Field(..., min_length=1)
     position: str = Field(..., min_length=1)

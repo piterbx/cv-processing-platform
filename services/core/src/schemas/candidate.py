@@ -1,6 +1,11 @@
-from datetime import date
-
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from src.schemas.skill import SkillApproveSchema
+from src.schemas.work_experience import (
+    WorkExperienceApproveSchema,
+    WorkExperienceStrictSchema,
+)
+
+from common.enums import DocumentStatus
 
 
 class CandidateSearchParams(BaseModel):
@@ -29,24 +34,9 @@ class CandidateSearchResponse(BaseModel):
     similarity_score: float = Field(
         ..., description="Cosine similarity score (0.0 to 1.0)"
     )
-    status: str = Field(..., description="Current status of the source document")
-
-
-class SkillApproveSchema(BaseModel):
-    name: str = Field(..., min_length=1, description="Skill name, ex. Python")
-
-
-class WorkExperienceApproveSchema(BaseModel):
-    company: str = Field(..., min_length=1)
-    position: str = Field(..., min_length=1)
-    start_date: date | str | None = Field(None)
-    end_date: date | str | None = Field(None)
-    description: str | None = None
-
-
-class WorkExperienceStrictSchema(WorkExperienceApproveSchema):
-    start_date: date | None = Field(None)
-    end_date: date | None = Field(None)
+    status: DocumentStatus = Field(
+        ..., description="Current status of the source document"
+    )
 
 
 class CandidateReviewDraft(BaseModel):

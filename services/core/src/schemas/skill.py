@@ -5,6 +5,10 @@ class SkillBase(BaseModel):
     name: str = Field(..., min_length=1, description="Skill name, ex. Python")
 
 
+class SkillApproveSchema(SkillBase):
+    pass
+
+
 class SkillCreate(SkillBase):
     """Schema used when creating a new skill in the dictionary."""
 
