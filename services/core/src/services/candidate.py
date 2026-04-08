@@ -1,9 +1,14 @@
 import logging
 
+from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.config import settings
-from src.schemas.candidate import CandidateSearchParams, CandidateSearchResponse
+from src.schemas.candidate import (
+    CandidateSearchParams,
+    CandidateSearchResponse,
+    CandidateUpdate,
+)
 
 from common.enums import DocumentStatus
 from common.models import Candidate, Document, Skill, WorkExperience
@@ -88,6 +93,47 @@ class CandidateService:
             )
             for cand, score in rows
         ]
+
+    # CANDIDATE CRUD
+    async def get_all_candidates(
+        self, db: AsyncSession, skip: int = 0, limit: int = 100
+    ):
+        query = select(Candidate).offset(skip).limit(limit)
+        result = await db.execute(query)
+        return result.scalars().all()
+
+    async def get_candidate_by_id(self, db: AsyncSession, candidate_id: int):
+        query = select(Candidate).where(Candidate.id == candidate_id)
+        result = await db.execute(query)
+        return result.scalar_one_or_none()
+
+    async def update_candidate(
+        self, db: AsyncSession, candidate_id: int, update_data: CandidateUpdate
+    ):
+        candidate = await self.get_candidate_by_id(db, candidate_id)
+        if not candidate:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Candidate not found"
+            )
+
+        update_dict = update_data.model_dump(exclude_unset=True)
+        for key, value in update_dict.items():
+            setattr(candidate, key, value)
+
+        await db.commit()
+        await db.refresh(candidate)
+        return candidate
+
+    async def delete_candidate(self, db: AsyncSession, candidate_id: int):
+        candidate = await self.get_candidate_by_id(db, candidate_id)
+        if not candidate:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Candidate not found"
+            )
+
+        await db.delete(candidate)
+        await db.commit()
+        return {"detail": "Candidate deleted successfully"}
 
 
 candidate_service = CandidateService()

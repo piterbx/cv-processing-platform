@@ -75,3 +75,33 @@ class ApprovedCandidateData(CandidateReviewDraft):
     email: EmailStr = Field(...)
 
     experiences: list[WorkExperienceStrictSchema] = Field(default_factory=list)
+
+
+class CandidateBase(BaseModel):
+    first_name: str | None = None
+    last_name: str | None = None
+    email: EmailStr | None = None
+    phone: str | None = None
+    location: str | None = None
+    total_experience_years: int = Field(0, ge=0)
+    summary: str | None = None
+
+
+class CandidateUpdate(BaseModel):
+    """Schema used for partial updates of candidate's profile."""
+
+    first_name: str | None = None
+    last_name: str | None = None
+    email: EmailStr | None = None
+    phone: str | None = None
+    location: str | None = None
+    total_experience_years: int | None = Field(None, ge=0)
+    summary: str | None = None
+
+
+class CandidateRead(CandidateBase):
+    """Schema used when returning candidate data from the database."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
