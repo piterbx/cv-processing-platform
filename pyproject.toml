@@ -9,9 +9,9 @@ members = ["services/*", "libs/*"]
 
 [tool.ruff]
 line-length = 88
-target-version = "py311"
+target-version = "py314"
 extend-exclude = [
-    "alembic",
+    "**/alembic/versions",
 ]
 
 [tool.ruff.lint]

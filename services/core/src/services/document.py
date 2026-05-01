@@ -418,7 +418,7 @@ class DocumentService:
 
         return {"message": f"Document {doc_id} has been permanently deleted."}
 
-    async def stream_document_status(self, doc: Document) -> AsyncGenerator[str, None]:
+    async def stream_document_status(self, doc: Document) -> AsyncGenerator[str]:
         """
         Subscribes to Redis PubSub and yields SSE-formatted status updates.
         """
